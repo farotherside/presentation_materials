@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FarOtherSide — Leg Picker</title>
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; padding: 0; background: #fbfaf7; color: #1a1a1a;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.4; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px 0; font-weight: 600; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 12px; }
+  .toolbar { position: sticky; top: 0; background: #fbfaf7; padding: 10px 0;
+    border-bottom: 1px solid #e3dfd6; z-index: 10;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .toolbar input[type=search] { flex: 1 1 200px; padding: 6px 10px; border: 1px solid #ccc;
+    border-radius: 6px; font-size: 13px; background: white; }
+  button { padding: 6px 12px; border: 1px solid #1a4d7a; background: #1a4d7a; color: white;
+    border-radius: 6px; cursor: pointer; font-size: 13px; }
+  button.secondary { background: white; color: #1a4d7a; }
+  button:hover { opacity: 0.9; }
+  .stats { color: #555; font-size: 12px; }
+  .leg-list { margin-top: 12px; }
+  .leg-row { background: white; border: 1px solid #e3dfd6; border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 6px; display: grid;
+    grid-template-columns: 24px 40px 1fr auto; gap: 10px; align-items: center; }
+  .leg-row.selected { background: #f4f0e6; border-color: #c9b88f; }
+  .leg-row.hidden { display: none; }
+  .leg-id { font-variant-numeric: tabular-nums; color: #888; font-size: 12px; text-align: right; }
+  .leg-name { font-weight: 500; }
+  .leg-meta { color: #666; font-size: 12px; margin-top: 2px;
+    font-variant-numeric: tabular-nums; }
+  .leg-meta .pill { display: inline-block; background: #f0ecdf; color: #5a4a1a;
+    padding: 1px 6px; border-radius: 4px; margin-right: 6px; font-size: 11px; }
+  .leg-meta .big { background: #d4e4ef; color: #1a4d7a; font-weight: 600; }
+  .leg-controls { display: none; grid-column: 1 / -1; padding: 8px 0 4px 60px;
+    border-top: 1px dashed #d4ccb8; margin-top: 8px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    align-items: center; }
+  .leg-row:not(.selected) .leg-controls { display: none; }
+  .control-group { font-size: 12px; }
+  .control-group label { display: block; color: #555; margin-bottom: 3px; font-weight: 500; }
+  .control-group select, .control-group input[type=number] {
+    width: 100%; padding: 3px 6px; border: 1px solid #ccc; border-radius: 4px;
+    background: white; font-size: 12px; }
+  .overlay-toggles { display: flex; gap: 8px; flex-wrap: wrap; }
+  .overlay-toggles label { display: flex; align-items: center; gap: 3px;
+    font-size: 11px; color: #444; cursor: pointer; margin: 0; font-weight: 400; }
+  .overlay-toggles input { margin: 0; }
+  .export-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); display: none; align-items: center;
+    justify-content: center; z-index: 100; }
+  .export-modal.open { display: flex; }
+  .modal-content { background: white; padding: 20px; border-radius: 8px;
+    max-width: 800px; max-height: 80vh; width: 90%; display: flex; flex-direction: column; }
+  .modal-content h2 { margin: 0 0 10px 0; font-size: 16px; }
+  .modal-content pre { background: #f5f3ed; padding: 10px; border-radius: 4px;
+    overflow: auto; flex: 1; font-size: 11px; font-family: ui-monospace, monospace; }
+  .modal-buttons { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
+  .checkbox-cell input { width: 18px; height: 18px; cursor: pointer; }
+  .group-header { background: #ede8d8; padding: 6px 12px; border-radius: 6px;
+    margin: 12px 0 6px 0; font-weight: 600; font-size: 12px; color: #5a4a1a;
+    text-transform: uppercase; letter-spacing: 0.5px; }
+  .legend { font-size: 11px; color: #777; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>FarOtherSide — Animation Leg Picker</h1>
+  <div class="subtitle">
+    Drew Smith's circumnavigation, 84 legs, 43,718 nm.
+    Check legs to include; configure duration, camera, and overlays per leg.
+    When you're happy, click <strong>Export Config</strong> to download
+    <code>farotherside_config.json</code>, then drop it into the renderer.
+  </div>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search by name or location...">
+    <button class="secondary" id="select-crossings">Select major crossings</button>
+    <button class="secondary" id="select-all">All</button>
+    <button class="secondary" id="select-none">None</button>
+    <button id="export-btn">Export Config →</button>
+    <span class="stats" id="stats"></span>
+  </div>
+
+  <div class="legend">
+    <span class="pill" style="background:#d4e4ef;color:#1a4d7a;font-weight:600;">stated nm</span>
+    distance from logbook  ·
+    <span class="pill" style="background:#f0ecdf;color:#5a4a1a;">avg kn</span>
+    overall average speed (low values include time at anchor)
+  </div>
+
+  <div class="leg-list" id="leg-list"></div>
+</div>
+
+<div class="export-modal" id="export-modal">
+  <div class="modal-content">
+    <h2>Render Config</h2>
+    <p style="margin:4px 0 8px 0;font-size:12px;color:#555;">
+      Downloaded as <strong>farotherside_config.json</strong> — check your Downloads folder.
+      Drop this file (plus the <code>geojson/</code> folder) onto the renderer to use it.
+    </p>
+    <pre id="export-json"></pre>
+    <div class="modal-buttons">
+      <button class="secondary" id="copy-btn">Copy to clipboard</button>
+      <button class="secondary" id="download-btn">Download again</button>
+      <button id="close-modal">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// === DATA ===
+const LEGS = [{"id":1,"name":"20171122 - San Francisco to San Diego","description":"San Francisco to San Diego","start":"2017-11-22T14:22:48+00:00","end":"2017-11-29T00:55:52+00:00","duration_hours":154.55,"points":1199,"stated_nm":463.1,"computed_nm":463.1,"avg_speed_kn":3.0,"max_speed_kn":8.67,"bbox":[-122.926542,32.622191,-117.228281,36.976699]},{"id":2,"name":"20171209 - Ensenada to La Paz","description":"Ensenada to La Paz","start":"2017-12-09T20:38:15+00:00","end":"2017-12-20T18:39:00+00:00","duration_hours":262.01,"points":3003,"stated_nm":1124.5,"computed_nm":977.5,"avg_speed_kn":3.73,"max_speed_kn":19.94,"bbox":[-116.93514,22.782734,-109.328093,31.848528]},{"id":3,"name":"20180313 - Mulege to San Carlos","description":"Mulege to San Carlos","start":"2018-03-13T21:51:15+00:00","end":"2018-03-16T16:35:39+00:00","duration_hours":66.74,"points":220,"stated_nm":129.4,"computed_nm":129.4,"avg_speed_kn":1.94,"max_speed_kn":7.99,"bbox":[-111.961668,26.64485,-111.057334,27.947098]},{"id":4,"name":"20191109 - San Carlos to Mulege","description":"San Carlos to Mulege","start":"2019-11-09T13:34:41+00:00","end":"2019-11-12T18:40:15+00:00","duration_hours":77.09,"points":140,"stated_nm":94.2,"computed_nm":94.2,"avg_speed_kn":1.22,"max_speed_kn":9.79,"bbox":[-111.962385,26.75378,-111.056239,27.929865]},{"id":5,"name":"20191113 - Mulege to Loreto","description":"Mulege to Loreto","start":"2019-11-13T21:00:10+00:00","end":"2019-11-18T02:21:43+00:00","duration_hours":101.36,"points":151,"stated_nm":99.9,"computed_nm":99.9,"avg_speed_kn":0.99,"max_speed_kn":6.65,"bbox":[-111.885937,25.723886,-111.235867,26.909498]},{"id":6,"name":"20191119 - Loreto to La Paz","description":"Loreto to La Paz","start":"2019-11-19T03:48:09+00:00","end":"2019-12-09T03:40:21+00:00","duration_hours":479.87,"points":334,"stated_nm":170.2,"computed_nm":170.2,"avg_speed_kn":0.35,"max_speed_kn":15.65,"bbox":[-111.235299,24.15887,-110.302906,25.726591]},{"id":7,"name":"20191210 - La Paz to Los Islotes","description":"La Paz to Los Islotes","start":"2019-12-10T07:03:21+00:00","end":"2019-12-29T08:39:08+00:00","duration_hours":457.6,"points":201,"stated_nm":78.6,"computed_nm":78.6,"avg_speed_kn":0.17,"max_speed_kn":11.72,"bbox":[-110.413863,24.1575,-110.303078,24.560926]},{"id":8,"name":"20200104 - La Paz to San Blas","description":"La Paz to San Blas","start":"2020-01-04T18:00:30+00:00","end":"2020-01-10T00:29:01+00:00","duration_hours":126.48,"points":894,"stated_nm":402.4,"computed_nm":402.4,"avg_speed_kn":3.18,"max_speed_kn":18.97,"bbox":[-110.346859,21.505093,-105.243035,24.394283]},{"id":9,"name":"20200113 - San Blas to La Cruz","description":"San Blas to La Cruz","start":"2020-01-13T14:35:16+00:00","end":"2020-03-21T23:39:56+00:00","duration_hours":1641.08,"points":227,"stated_nm":108.5,"computed_nm":108.5,"avg_speed_kn":0.07,"max_speed_kn":15.61,"bbox":[-105.56267,20.489909,-105.242345,21.544103]},{"id":10,"name":"20200323 - La Cruz to Barra de Navidad","description":"La Cruz to Barra de Navidad","start":"2020-03-23T17:35:58+00:00","end":"2020-04-29T04:09:30+00:00","duration_hours":874.56,"points":806,"stated_nm":166.9,"computed_nm":166.9,"avg_speed_kn":0.19,"max_speed_kn":18.63,"bbox":[-105.757051,19.181286,-104.672119,20.767427]},{"id":11,"name":"20200504 - Barra de Navidad to Lahaina, Maui","description":"Barra de Navidad to Lahaina, Maui","start":"2020-05-04T17:22:43+00:00","end":"2020-06-11T23:39:15+00:00","duration_hours":918.28,"points":17691,"stated_nm":3155.5,"computed_nm":3155.5,"avg_speed_kn":3.44,"max_speed_kn":19.95,"bbox":[-156.706282,18.181302,-104.675758,22.309889]},{"id":12,"name":"20200616 - Maui to Honolulu","description":"Maui to Honolulu","start":"2020-06-16T07:59:22+00:00","end":"2020-06-18T15:29:13+00:00","duration_hours":55.5,"points":632,"stated_nm":93.6,"computed_nm":93.6,"avg_speed_kn":1.69,"max_speed_kn":17.95,"bbox":[-157.846208,20.720808,-156.61909,21.286814]},{"id":13,"name":"20200620 - Honolulu to Kauai","description":"Honolulu to Kauai","start":"2020-06-20T23:48:15+00:00","end":"2020-06-23T03:44:55+00:00","duration_hours":51.94,"points":824,"stated_nm":105.9,"computed_nm":105.9,"avg_speed_kn":2.04,"max_speed_kn":17.25,"bbox":[-159.359155,21.229636,-157.83142,21.971779]},{"id":14,"name":"20200626 - Cruising Kauai","description":"Kauai","start":"2020-06-26T22:25:01+00:00","end":"2020-07-16T04:58:29+00:00","duration_hours":462.56,"points":665,"stated_nm":62.3,"computed_nm":62.3,"avg_speed_kn":0.13,"max_speed_kn":15.89,"bbox":[-159.67918,21.949775,-159.27209,22.299163]},{"id":15,"name":"20200723 - Hanalei, Kauai to Victoria, Canada","description":"Kauai to Victoria, Canada","start":"2020-07-23T07:20:45+00:00","end":"2020-09-04T22:06:46+00:00","duration_hours":1046.77,"points":19181,"stated_nm":3114.0,"computed_nm":3114.0,"avg_speed_kn":2.97,"max_speed_kn":20.0,"bbox":[-159.956466,22.223711,-123.225891,49.291167]},{"id":16,"name":"20201002 - Vancouver to Sydney","description":"Vancouver to Sydney","start":"2020-10-02T13:12:54+00:00","end":"2020-12-11T20:52:39+00:00","duration_hours":1687.66,"points":237,"stated_nm":73.1,"computed_nm":73.1,"avg_speed_kn":0.04,"max_speed_kn":18.94,"bbox":[-123.595362,48.65162,-123.136594,49.29713]},{"id":17,"name":"20201214 - Sydney to Vancouver","description":"Sydney to Vancouver","start":"2020-12-14T17:09:25+00:00","end":"2020-12-15T03:14:43+00:00","duration_hours":10.09,"points":169,"stated_nm":54.2,"computed_nm":54.2,"avg_speed_kn":5.37,"max_speed_kn":16.99,"bbox":[-123.596247,48.652811,-123.106716,49.294227]},{"id":18,"name":"20201221 - Vancouver to Sydney","description":"Vancouver to Sydney","start":"2020-12-21T18:13:58+00:00","end":"2021-02-19T00:13:36+00:00","duration_hours":1421.99,"points":254,"stated_nm":59.1,"computed_nm":59.1,"avg_speed_kn":0.04,"max_speed_kn":17.47,"bbox":[-123.394634,48.651224,-123.114388,49.296225]},{"id":19,"name":"20210222 - Pender Island to Vancouver","description":"Pender Island to Vancouver","start":"2021-02-22T04:15:19+00:00","end":"2021-03-06T23:09:57+00:00","duration_hours":306.91,"points":203,"stated_nm":59.6,"computed_nm":59.6,"avg_speed_kn":0.19,"max_speed_kn":17.41,"bbox":[-123.724387,48.796436,-123.10587,49.29336]},{"id":20,"name":"20210325 - Vancouver to Pender Island","description":"Vancouver to Pender Island","start":"2021-03-25T16:46:51+00:00","end":"2021-03-26T02:00:01+00:00","duration_hours":9.22,"points":189,"stated_nm":43.7,"computed_nm":43.7,"avg_speed_kn":4.74,"max_speed_kn":19.88,"bbox":[-123.348732,48.768621,-123.136183,49.295625]},{"id":21,"name":"20210401 - Pender Island to Vancouver","description":"Pender Island to Vancouver","start":"2021-04-01T17:42:39+00:00","end":"2021-07-08T10:09:48+00:00","duration_hours":2344.45,"points":287,"stated_nm":77.7,"computed_nm":77.7,"avg_speed_kn":0.03,"max_speed_kn":13.39,"bbox":[-123.595284,48.767768,-123.105901,49.291549]},{"id":22,"name":"20210709 - Vancouver to Sydney","description":"Vancouver to Sydney","start":"2021-07-09T17:33:29+00:00","end":"2021-07-10T16:59:12+00:00","duration_hours":23.43,"points":128,"stated_nm":47.7,"computed_nm":47.7,"avg_speed_kn":2.04,"max_speed_kn":14.55,"bbox":[-123.394705,48.652937,-123.126847,49.295108]},{"id":23,"name":"20210810 - Sydney to Vancouver","description":"Sydney to Vancouver","start":"2021-08-10T23:00:27+00:00","end":"2021-09-17T08:05:05+00:00","duration_hours":897.08,"points":209,"stated_nm":59.9,"computed_nm":59.9,"avg_speed_kn":0.07,"max_speed_kn":9.78,"bbox":[-123.59544,48.652345,-123.106292,49.293643]},{"id":24,"name":"20210920 - Vancouver to Port Angeles, USA","description":"Vancouver to Port Angeles","start":"2021-09-20T14:54:24+00:00","end":"2021-09-24T12:53:24+00:00","duration_hours":93.98,"points":408,"stated_nm":91.6,"computed_nm":91.6,"avg_speed_kn":0.98,"max_speed_kn":19.36,"bbox":[-123.427428,48.119948,-123.114415,49.292735]},{"id":25,"name":"20210929 - Port Angeles to Oakland, CA","description":"Port Angeles to Oakland","start":"2021-09-29T05:44:54+00:00","end":"2021-10-30T02:05:38+00:00","duration_hours":740.35,"points":5560,"stated_nm":1045.4,"computed_nm":1045.4,"avg_speed_kn":1.41,"max_speed_kn":19.96,"bbox":[-126.717962,37.718071,-122.276928,48.473161]},{"id":26,"name":"20211227 - Oakland to Santa Cruz Island","description":"Oakland to Santa Cruz Island","start":"2021-12-27T16:39:12+00:00","end":"2022-01-04T17:39:38+00:00","duration_hours":193.01,"points":1669,"stated_nm":337.4,"computed_nm":337.4,"avg_speed_kn":1.75,"max_speed_kn":18.6,"bbox":[-122.636317,34.045979,-119.544111,37.820025]},{"id":27,"name":"20220106 - Santa Cruz Island to Los Angeles","description":"Santa Cruz Island to Los Angeles","start":"2022-01-06T15:39:30+00:00","end":"2022-01-07T01:05:00+00:00","duration_hours":9.43,"points":37,"stated_nm":46.9,"computed_nm":46.9,"avg_speed_kn":4.97,"max_speed_kn":15.37,"bbox":[-119.366541,33.958593,-118.44662,34.039615]},{"id":28,"name":"20220108 - LA to Santa Catalina","description":"LA to Santa Catalina","start":"2022-01-08T03:00:00+00:00","end":"2022-01-09T01:09:21+00:00","duration_hours":22.16,"points":131,"stated_nm":36.7,"computed_nm":36.7,"avg_speed_kn":1.66,"max_speed_kn":18.08,"bbox":[-118.486456,33.394116,-118.360534,33.97633]},{"id":29,"name":"20220110 - Santa Catalina to San Diego","description":"Santa Catalina to San Diego","start":"2022-01-10T04:49:27+00:00","end":"2022-01-11T22:56:48+00:00","duration_hours":42.12,"points":298,"stated_nm":79.2,"computed_nm":79.2,"avg_speed_kn":1.88,"max_speed_kn":19.45,"bbox":[-118.367818,32.654069,-117.185006,33.394041]},{"id":30,"name":"20220122 - San Diego to La Ventana, Mexico","description":"San Diego to La Ventana","start":"2022-01-22T22:52:07+00:00","end":"2022-02-16T18:40:48+00:00","duration_hours":595.81,"points":4448,"stated_nm":954.0,"computed_nm":954.0,"avg_speed_kn":1.6,"max_speed_kn":19.66,"bbox":[-117.235218,22.859091,-109.377791,32.72183]},{"id":31,"name":"20220403 - La Ventana to La Paz","description":"La Ventana to La Paz","start":"2022-04-03T12:43:27+00:00","end":"2022-04-05T15:45:06+00:00","duration_hours":51.03,"points":184,"stated_nm":40.8,"computed_nm":40.8,"avg_speed_kn":0.8,"max_speed_kn":18.67,"bbox":[-110.344644,24.094673,-109.979431,24.363103]},{"id":32,"name":"20220406 - La Ventana to Los Cabos","description":"La Ventana to Los Cabos","start":"2022-04-06T17:15:19+00:00","end":"2022-04-07T15:51:53+00:00","duration_hours":22.61,"points":384,"stated_nm":89.4,"computed_nm":89.4,"avg_speed_kn":3.95,"max_speed_kn":18.63,"bbox":[-109.986619,23.047949,-109.36852,24.093715]},{"id":33,"name":"20220408 - Los Cabos to Nuku Hiva, French Polynesia","description":"Los Cabos to Nuku Hiva, French Polynesia","start":"2022-04-08T21:41:18+00:00","end":"2022-06-07T19:36:34+00:00","duration_hours":1437.92,"points":17077,"stated_nm":2982.1,"computed_nm":2982.1,"avg_speed_kn":2.07,"max_speed_kn":20.0,"bbox":[-140.166823,-9.358936,-109.623568,23.063023]},{"id":34,"name":"20220610 - Nuku Hiva to Fakarava","description":"Nuku Hiva to Fakarava","start":"2022-06-10T22:34:47+00:00","end":"2022-06-29T20:45:17+00:00","duration_hours":454.18,"points":2529,"stated_nm":581.7,"computed_nm":581.7,"avg_speed_kn":1.28,"max_speed_kn":19.74,"bbox":[-145.713838,-16.506913,-140.044785,-9.301725]},{"id":35,"name":"20220705 - Fakarava to Tahiti","description":"Fakarava to Tahiti","start":"2022-07-05T18:12:45+00:00","end":"2022-07-09T23:16:21+00:00","duration_hours":101.06,"points":1414,"stated_nm":267.9,"computed_nm":267.9,"avg_speed_kn":2.65,"max_speed_kn":19.5,"bbox":[-149.622616,-17.577828,-145.45201,-16.503453]},{"id":36,"name":"20220711 - Cruising Tahiti / Moorea","description":"Tahiti / Moorea","start":"2022-07-11T05:01:38+00:00","end":"2022-07-24T00:42:37+00:00","duration_hours":307.68,"points":331,"stated_nm":74.0,"computed_nm":74.0,"avg_speed_kn":0.24,"max_speed_kn":18.94,"bbox":[-149.8782,-17.552363,-149.569212,-17.461605]},{"id":37,"name":"20220727 - Tahiti to Bora Bora","description":"Tahiti to Bora Bora","start":"2022-07-27T00:16:23+00:00","end":"2022-08-01T00:27:43+00:00","duration_hours":120.19,"points":847,"stated_nm":143.2,"computed_nm":143.2,"avg_speed_kn":1.19,"max_speed_kn":19.16,"bbox":[-151.795416,-17.492916,-149.852652,-16.492772]},{"id":38,"name":"20220802 - Bora Bora to American Samoa","description":"Bora Bora to American Samoa","start":"2022-08-02T00:57:34+00:00","end":"2022-08-16T17:24:30+00:00","duration_hours":352.45,"points":6600,"stated_nm":1208.3,"computed_nm":1208.3,"avg_speed_kn":3.43,"max_speed_kn":19.99,"bbox":[-170.695331,-16.51632,-151.752932,-13.157994]},{"id":39,"name":"20220823 - American Samoa to Western Samoa","description":"American Samoa to Western Samoa","start":"2022-08-23T08:14:08+00:00","end":"2022-08-28T02:47:04+00:00","duration_hours":114.55,"points":631,"stated_nm":84.2,"computed_nm":84.2,"avg_speed_kn":0.74,"max_speed_kn":19.32,"bbox":[-171.764528,-14.414341,-170.667369,-13.813961]},{"id":40,"name":"20220903 - Western Samoa to Fiji","description":"Western Samoa to Fiji","start":"2022-09-03T06:53:13+00:00","end":"2022-09-09T18:38:19+00:00","duration_hours":155.75,"points":3719,"stated_nm":602.2,"computed_nm":602.2,"avg_speed_kn":3.87,"max_speed_kn":19.96,"bbox":[-179.998443,-17.074851,179.998944,-13.726803]},{"id":41,"name":"20220914 - Cruising Fiji","description":"Cruising Fiji","start":"2022-09-14T23:01:36+00:00","end":"2022-10-08T03:12:14+00:00","duration_hours":556.18,"points":2000,"stated_nm":399.6,"computed_nm":348.0,"avg_speed_kn":0.63,"max_speed_kn":19.66,"bbox":[177.12365,-17.81053,179.900116,-16.775927]},{"id":42,"name":"20221009 - Fiji to Vanuatu","description":"Fiji to Vanuatu","start":"2022-10-09T05:20:22+00:00","end":"2022-10-14T10:41:11+00:00","duration_hours":125.35,"points":4129,"stated_nm":565.5,"computed_nm":565.5,"avg_speed_kn":4.51,"max_speed_kn":19.9,"bbox":[168.226805,-17.865585,177.383695,-17.457712]},{"id":43,"name":"20221111 - Vanuatu to New Caledonia","description":"Vanuatu to New Caledonia","start":"2022-11-11T02:14:01+00:00","end":"2022-11-15T22:41:09+00:00","duration_hours":116.45,"points":2022,"stated_nm":377.7,"computed_nm":377.7,"avg_speed_kn":3.24,"max_speed_kn":19.02,"bbox":[166.422695,-22.407148,168.830626,-17.739016]},{"id":44,"name":"20221119 - New Caledonia to Coffs Harbour, Australia","description":"New Caledonia to Coffs Harbour, Australia","start":"2022-11-19T22:35:56+00:00","end":"2022-12-17T13:50:18+00:00","duration_hours":663.24,"points":7076,"stated_nm":950.1,"computed_nm":950.1,"avg_speed_kn":1.43,"max_speed_kn":14.88,"bbox":[153.143123,-30.446176,166.436497,-22.276482]},{"id":45,"name":"20221221 - Coffs Harbour to Sydney, Australia","description":"Coffs Harbour to Sydney, Australia","start":"2022-12-21T03:26:34+00:00","end":"2023-01-04T00:46:38+00:00","duration_hours":333.33,"points":1909,"stated_nm":295.5,"computed_nm":295.5,"avg_speed_kn":0.89,"max_speed_kn":12.25,"bbox":[151.185609,-33.872371,153.225626,-30.304919]},{"id":46,"name":"20230107 - Sydney to Coffs Harbour","description":"Sydney to Coffs Harbour","start":"2023-01-07T01:14:05+00:00","end":"2023-01-18T08:10:09+00:00","duration_hours":270.93,"points":1824,"stated_nm":315.4,"computed_nm":274.2,"avg_speed_kn":1.01,"max_speed_kn":9.18,"bbox":[151.185477,-33.871982,153.211659,-30.304054]},{"id":47,"name":"20230426 - Coffs Harbour to Gold Coast","description":"Coffs Harbour to Gold Coast","start":"2023-04-26T05:39:15+00:00","end":"2023-04-28T05:04:29+00:00","duration_hours":47.42,"points":1405,"stated_nm":185.0,"computed_nm":185.0,"avg_speed_kn":3.9,"max_speed_kn":9.52,"bbox":[153.145047,-30.314644,154.100356,-27.933754]},{"id":48,"name":"20230429 - Gold Coast to Brisbane","description":"Gold Coast to Brisbane","start":"2023-04-29T07:04:18+00:00","end":"2023-05-03T03:06:01+00:00","duration_hours":92.03,"points":278,"stated_nm":50.1,"computed_nm":50.1,"avg_speed_kn":0.54,"max_speed_kn":11.67,"bbox":[153.1907,-27.950291,153.438355,-27.443525]},{"id":49,"name":"20230505 - Brisbane to Double Island","description":"Brisbane to Double Island","start":"2023-05-05T05:36:55+00:00","end":"2023-05-06T23:51:23+00:00","duration_hours":42.24,"points":616,"stated_nm":107.8,"computed_nm":107.8,"avg_speed_kn":2.55,"max_speed_kn":13.07,"bbox":[153.161387,-27.452786,153.394419,-25.917405]},{"id":50,"name":"20230508 - Double Island to Lady Musgrave Island","description":"Double Island to Lady Musgrave Island","start":"2023-05-08T03:06:49+00:00","end":"2023-05-11T04:03:11+00:00","duration_hours":72.94,"points":1355,"stated_nm":167.2,"computed_nm":167.2,"avg_speed_kn":2.29,"max_speed_kn":10.67,"bbox":[152.384104,-25.949972,153.529871,-23.889498]},{"id":51,"name":"20230512 - Lady Musgrave Island to Gladstone","description":"Lady Musgrave Island to Gladstone","start":"2023-05-12T06:27:03+00:00","end":"2023-05-30T06:15:10+00:00","duration_hours":431.8,"points":536,"stated_nm":81.8,"computed_nm":81.8,"avg_speed_kn":0.19,"max_speed_kn":12.3,"bbox":[151.235635,-24.032712,152.411879,-23.775684]},{"id":52,"name":"20230531 - Gladstone to Keppel Island","description":"Gladstone to Keppel Island","start":"2023-05-31T06:54:45+00:00","end":"2023-06-04T03:56:15+00:00","duration_hours":93.03,"points":324,"stated_nm":57.5,"computed_nm":57.5,"avg_speed_kn":0.62,"max_speed_kn":12.55,"bbox":[150.875639,-23.775851,151.324571,-23.064248]},{"id":53,"name":"20230605 - Keppel Island to Port Clinton","description":"Keppel Island to Port Clinton","start":"2023-06-05T10:09:05+00:00","end":"2023-06-06T06:35:45+00:00","duration_hours":20.44,"points":284,"stated_nm":38.3,"computed_nm":38.3,"avg_speed_kn":1.87,"max_speed_kn":11.61,"bbox":[150.749451,-23.063898,150.884689,-22.513658]},{"id":54,"name":"20230607 - Port Clinton to Middle Percy Island","description":"Port Clinton to Middle Percy Island","start":"2023-06-07T10:01:47+00:00","end":"2023-06-09T04:26:34+00:00","duration_hours":42.41,"points":386,"stated_nm":70.4,"computed_nm":70.4,"avg_speed_kn":1.66,"max_speed_kn":16.59,"bbox":[150.235076,-22.546149,150.783353,-21.652589]},{"id":55,"name":"20230611 - Middle Percy Island to Mackay","description":"Middle Percy Island to Mackay","start":"2023-06-11T19:21:09+00:00","end":"2023-06-23T01:29:12+00:00","duration_hours":270.13,"points":547,"stated_nm":100.9,"computed_nm":100.9,"avg_speed_kn":0.37,"max_speed_kn":17.34,"bbox":[149.226469,-21.649883,150.241809,-20.913757]},{"id":56,"name":"20230624 - Mackay to Airlie Beach","description":"Mackay to Airlie Beach","start":"2023-06-24T01:29:16+00:00","end":"2023-06-29T04:38:02+00:00","duration_hours":123.15,"points":385,"stated_nm":76.0,"computed_nm":76.0,"avg_speed_kn":0.62,"max_speed_kn":15.99,"bbox":[148.722046,-21.110514,149.310277,-20.228451]},{"id":57,"name":"20230702 - Cruising Whitsundays","description":"Cruising Whitsundays","start":"2023-07-02T11:03:48+00:00","end":"2023-07-08T15:56:55+00:00","duration_hours":148.89,"points":458,"stated_nm":77.5,"computed_nm":77.5,"avg_speed_kn":0.52,"max_speed_kn":11.34,"bbox":[148.721978,-20.338458,149.093384,-20.083227]},{"id":58,"name":"20230710 - Airlie Beach to Magnetic Island","description":"Airlie Beach to Magnetic Island","start":"2023-07-10T00:54:32+00:00","end":"2023-07-19T03:17:26+00:00","duration_hours":218.38,"points":1429,"stated_nm":201.0,"computed_nm":201.0,"avg_speed_kn":0.92,"max_speed_kn":12.77,"bbox":[146.821514,-20.260619,149.063912,-19.099383]},{"id":59,"name":"20230723 - Magnetic Island to Cairns","description":"Magnetic Island to Cairns","start":"2023-07-23T02:47:22+00:00","end":"2023-07-25T06:20:50+00:00","duration_hours":51.56,"points":931,"stated_nm":161.2,"computed_nm":161.2,"avg_speed_kn":3.13,"max_speed_kn":15.75,"bbox":[145.785784,-19.110298,146.859397,-16.855539]},{"id":60,"name":"20230729 - Cairns to Lizard Island","description":"Cairns to Lizard Island","start":"2023-07-29T08:38:37+00:00","end":"2023-08-01T10:01:44+00:00","duration_hours":73.39,"points":922,"stated_nm":144.5,"computed_nm":144.5,"avg_speed_kn":1.97,"max_speed_kn":16.72,"bbox":[145.37896,-16.918622,145.817477,-14.661168]},{"id":61,"name":"20230803 - Lizard Island to Thursday Island","description":"Lizard Island to Thursday Island","start":"2023-08-03T19:10:53+00:00","end":"2023-08-14T07:23:21+00:00","duration_hours":252.21,"points":2052,"stated_nm":371.0,"computed_nm":371.0,"avg_speed_kn":1.47,"max_speed_kn":19.93,"bbox":[142.154747,-14.659035,145.447509,-10.557053]},{"id":62,"name":"20230815 - Thursday Island to Broome","description":"Thursday Island to Broome","start":"2023-08-15T07:25:04+00:00","end":"2023-08-31T13:42:02+00:00","duration_hours":390.28,"points":8831,"stated_nm":1466.8,"computed_nm":1466.8,"avg_speed_kn":3.76,"max_speed_kn":19.93,"bbox":[121.957958,-18.013843,142.154555,-10.526856]},{"id":63,"name":"20230905 - Broome to Exmouth","description":"Broome to Exmouth","start":"2023-09-05T22:01:35+00:00","end":"2023-09-13T13:03:47+00:00","duration_hours":183.04,"points":3278,"stated_nm":661.8,"computed_nm":661.8,"avg_speed_kn":3.62,"max_speed_kn":19.9,"bbox":[114.141043,-21.959392,122.237822,-17.690064]},{"id":64,"name":"20230920 - Exmouth to Carnarvon","description":"Exmouth to Carnarvon","start":"2023-09-20T04:27:27+00:00","end":"2023-09-24T05:41:53+00:00","duration_hours":97.24,"points":1688,"stated_nm":347.9,"computed_nm":347.9,"avg_speed_kn":3.58,"max_speed_kn":19.1,"bbox":[112.765791,-24.910129,114.214643,-21.758913]},{"id":65,"name":"20230927 - Carnarvon to Monkey Mia","description":"Carnarvon to Monkey Mia","start":"2023-09-27T05:41:23+00:00","end":"2023-09-29T06:14:22+00:00","duration_hours":48.55,"points":149,"stated_nm":67.5,"computed_nm":67.5,"avg_speed_kn":1.39,"max_speed_kn":13.02,"bbox":[113.541278,-25.791935,113.720286,-24.89923]},{"id":66,"name":"20231006 - Monkey Mia to Abrolhos Islands","description":"Monkey Mia to Abrolhos Islands","start":"2023-10-06T21:57:28+00:00","end":"2023-10-09T16:02:54+00:00","duration_hours":66.09,"points":806,"stated_nm":248.5,"computed_nm":248.5,"avg_speed_kn":3.76,"max_speed_kn":19.51,"bbox":[113.032824,-28.42977,113.8964,-25.494627]},{"id":67,"name":"20231014 - Abrolhos to Geraldton","description":"Abrolhos to Geraldton","start":"2023-10-14T22:05:58+00:00","end":"2023-10-26T06:36:49+00:00","duration_hours":272.51,"points":128,"stated_nm":52.9,"computed_nm":52.9,"avg_speed_kn":0.19,"max_speed_kn":11.73,"bbox":[113.736912,-28.773351,114.611164,-28.415588]},{"id":68,"name":"20231101 - Geraldton to Fremantle","description":"Geraldton to Fremantle","start":"2023-11-01T20:52:52+00:00","end":"2023-11-12T03:37:44+00:00","duration_hours":246.75,"points":820,"stated_nm":263.6,"computed_nm":263.6,"avg_speed_kn":1.07,"max_speed_kn":18.91,"bbox":[114.488383,-32.273954,115.749085,-28.75008]},{"id":69,"name":"20231210 - Fremantle to Busselton","description":"Fremantle to Busselton","start":"2023-12-10T01:23:01+00:00","end":"2023-12-12T07:21:08+00:00","duration_hours":53.97,"points":423,"stated_nm":114.0,"computed_nm":114.0,"avg_speed_kn":2.11,"max_speed_kn":19.83,"bbox":[115.302056,-33.651349,115.726259,-32.138163]},{"id":70,"name":"20240104 - Busselton to Hobart, Tasmania","description":"Busselton to Hobart, Tasmania","start":"2024-01-04T05:22:22+00:00","end":"2024-02-03T05:14:17+00:00","duration_hours":719.87,"points":12761,"stated_nm":2570.7,"computed_nm":2570.7,"avg_speed_kn":3.57,"max_speed_kn":18.87,"bbox":[113.217687,-46.668738,147.538809,-33.520222]},{"id":71,"name":"20240407 - Hobart to Flinders Island","description":"42.8253\u00b0S, 147.3121\u00b0E to 40.2133\u00b0S, 148.2493\u00b0E","start":"2024-04-07T00:59:27+00:00","end":"2024-04-11T04:50:02+00:00","duration_hours":99.84,"points":1066,"stated_nm":266.3,"computed_nm":266.3,"avg_speed_kn":2.67,"max_speed_kn":19.01,"bbox":[147.312149,-43.311964,148.634871,-40.213305]},{"id":72,"name":"20240412 - Flinders Island to Sydney","description":"40.2131\u00b0S, 148.2499\u00b0E to 33.8716\u00b0S, 151.1856\u00b0E","start":"2024-04-12T10:30:03+00:00","end":"2024-05-11T16:58:52+00:00","duration_hours":702.48,"points":1583,"stated_nm":478.7,"computed_nm":478.7,"avg_speed_kn":0.68,"max_speed_kn":19.11,"bbox":[148.249887,-40.254501,151.353957,-33.799807]},{"id":73,"name":"20240513 - Sydney to Nelson Bay","description":"33.8648\u00b0S, 151.1890\u00b0E to 32.7159\u00b0S, 152.1490\u00b0E","start":"2024-05-13T05:37:17+00:00","end":"2024-05-15T17:46:10+00:00","duration_hours":60.15,"points":515,"stated_nm":155.8,"computed_nm":155.8,"avg_speed_kn":2.59,"max_speed_kn":11.78,"bbox":[151.188978,-33.864778,152.885089,-32.702245]},{"id":74,"name":"20240520 - Nelson Bay to Norfolk Island","description":"32.7158\u00b0S, 152.1397\u00b0E to 29.0208\u00b0S, 167.9729\u00b0E","start":"2024-05-20T01:59:19+00:00","end":"2024-06-05T18:26:24+00:00","duration_hours":400.45,"points":4848,"stated_nm":1114.3,"computed_nm":1114.3,"avg_speed_kn":2.78,"max_speed_kn":19.74,"bbox":[152.056396,-32.77409,168.005437,-28.872605]},{"id":75,"name":"20240607 - Norfolk Island to Fiji","description":"29.0105\u00b0S, 167.9692\u00b0E to 17.6453\u00b0S, 177.3940\u00b0E","start":"2024-06-07T04:27:56+00:00","end":"2024-10-18T08:47:46+00:00","duration_hours":3196.33,"points":3844,"stated_nm":1092.1,"computed_nm":1092.1,"avg_speed_kn":0.34,"max_speed_kn":17.47,"bbox":[167.904615,-29.067556,177.443133,-17.582604]},{"id":76,"name":"20241020 - Fiji to Whangarei, New Zealand","description":"17.6392\u00b0S, 177.3938\u00b0E to 35.7404\u00b0S, 174.3387\u00b0E","start":"2024-10-20T19:07:52+00:00","end":"2024-12-03T05:21:42+00:00","duration_hours":1042.23,"points":6984,"stated_nm":1373.1,"computed_nm":1373.1,"avg_speed_kn":1.32,"max_speed_kn":19.36,"bbox":[171.945072,-35.872263,177.393777,-17.630561]},{"id":77,"name":"20250218 - Whangarei to Opua","description":"35.7380\u00b0S, 174.3421\u00b0E to 35.2731\u00b0S, 174.1248\u00b0E","start":"2025-02-18T23:28:30+00:00","end":"2025-02-24T02:31:35+00:00","duration_hours":123.05,"points":488,"stated_nm":89.0,"computed_nm":89.0,"avg_speed_kn":0.72,"max_speed_kn":12.08,"bbox":[174.105851,-35.872166,174.62072,-35.158704]},{"id":78,"name":"20250226 - Opua to Tauranga","description":"35.2730\u00b0S, 174.1247\u00b0E to 37.6373\u00b0S, 176.1781\u00b0E","start":"2025-02-26T19:02:17+00:00","end":"2025-03-22T22:27:09+00:00","duration_hours":579.41,"points":1465,"stated_nm":280.1,"computed_nm":280.1,"avg_speed_kn":0.48,"max_speed_kn":12.92,"bbox":[174.105766,-37.681175,176.179985,-35.166966]},{"id":79,"name":"20250326 - Tauranga to Auckland","description":"37.6371\u00b0S, 176.1713\u00b0E to 36.8362\u00b0S, 174.7450\u00b0E","start":"2025-03-26T17:13:19+00:00","end":"2025-04-02T13:18:23+00:00","duration_hours":164.08,"points":918,"stated_nm":176.4,"computed_nm":176.4,"avg_speed_kn":1.08,"max_speed_kn":19.94,"bbox":[174.744459,-37.637148,176.171273,-36.451098]},{"id":80,"name":"20250418 - Auckland NZ to Rapa Iti","description":"36.8327\u00b0S, 174.7525\u00b0E to 36.8128\u00b0S, 154.3362\u00b0W","start":"2025-04-18T23:36:45+00:00","end":"2025-05-26T20:52:00+00:00","duration_hours":909.25,"points":16142,"stated_nm":2096.7,"computed_nm":2992.0,"avg_speed_kn":3.29,"max_speed_kn":18.35,"bbox":[-179.999392,-41.068675,179.996582,-27.611668]},{"id":81,"name":"20250528 - Rapa Iti to Tahiti","description":"27.6135\u00b0S, 144.3340\u00b0W to 17.5396\u00b0S, 149.5697\u00b0W","start":"2025-05-28T22:56:40+00:00","end":"2025-06-04T23:15:02+00:00","duration_hours":168.31,"points":3732,"stated_nm":707.5,"computed_nm":707.5,"avg_speed_kn":4.2,"max_speed_kn":12.77,"bbox":[-149.693085,-27.616211,-144.275981,-17.507775]},{"id":82,"name":"20250701 - Tahiti to Honolulu, USA","description":"17.5416\u00b0S, 149.5767\u00b0W to 21.2869\u00b0N, 157.8428\u00b0W","start":"2025-07-01T01:23:26+00:00","end":"2025-08-08T05:32:10+00:00","duration_hours":916.15,"points":7700,"stated_nm":2825.0,"computed_nm":2825.0,"avg_speed_kn":3.08,"max_speed_kn":19.09,"bbox":[-157.881551,-17.541579,-146.675572,21.702441]},{"id":83,"name":"20250813 - Honolulu to Hale&apos;iwa","description":"21.2872\u00b0N, 157.8426\u00b0W to 21.5955\u00b0N, 158.1061\u00b0W","start":"2025-08-13T07:28:40+00:00","end":"2025-08-14T06:22:52+00:00","duration_hours":22.9,"points":71,"stated_nm":49.3,"computed_nm":49.3,"avg_speed_kn":2.15,"max_speed_kn":13.16,"bbox":[-158.29752,21.266762,-157.842553,21.607405]},{"id":84,"name":"20250815 - Hale&apos;iwa to Victoria, Canada","description":"21.5942\u00b0N, 158.1062\u00b0W to 48.4533\u00b0N, 123.2948\u00b0W","start":"2025-08-15T06:28:03+00:00","end":"2025-09-30T05:11:13+00:00","duration_hours":1102.72,"points":8587,"stated_nm":3261.9,"computed_nm":3261.9,"avg_speed_kn":2.96,"max_speed_kn":18.94,"bbox":[-158.620334,21.59424,-123.281893,49.055567]}];
+
+// Major crossing leg IDs (over 1000 nm or otherwise emblematic)
+const MAJOR_CROSSINGS = [1, 11, 15, 25, 30, 33, 44, 62, 70, 74, 75, 76, 80, 82, 84];
+
+// === STATE ===
+// Per-leg settings keyed by id
+const settings = {};
+LEGS.forEach(l => {
+  // Suggest a duration: scale to distance, between 12 and 45 seconds
+  const nm = l.stated_nm || l.computed_nm || 50;
+  const suggested = Math.max(12, Math.min(45, Math.round(8 + nm / 80)));
+  settings[l.id] = {
+    selected: false,
+    duration_sec: suggested,
+    camera: 'static',          // 'static' | 'follow' | 'keyframe'
+    overlays: {
+      date: true,
+      distance: true,
+      speed: false,
+    },
+  };
+});
+
+// === RENDER ===
+function fmtDate(iso) {
+  if (!iso) return '?';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US',
+    { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function fmtDuration(hours) {
+  if (!hours) return '?';
+  if (hours < 48) return `${hours.toFixed(0)}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+function nameOnly(name) {
+  // Strip the leading "YYYYMMDD - "
+  return name.replace(/^\d{8}\s*-\s*/, '')
+             .replace(/&apos;/g, "'");
+}
+
+function legRowHtml(leg) {
+  const s = settings[leg.id];
+  const nm = leg.stated_nm || leg.computed_nm;
+  return `
+    <div class="leg-row ${s.selected ? 'selected' : ''}" data-id="${leg.id}">
+      <div class="checkbox-cell">
+        <input type="checkbox" data-action="toggle" ${s.selected ? 'checked' : ''}>
+      </div>
+      <div class="leg-id">${leg.id}</div>
+      <div>
+        <div class="leg-name">${nameOnly(leg.name)}</div>
+        <div class="leg-meta">
+          <span class="pill big">${nm ? nm.toLocaleString() + ' nm' : '–'}</span>
+          <span class="pill">${leg.avg_speed_kn ?? '?'} kn avg</span>
+          <span>${fmtDate(leg.start)} → ${fmtDate(leg.end)}  ·
+                ${fmtDuration(leg.duration_hours)}  ·
+                ${leg.points.toLocaleString()} pts</span>
+        </div>
+      </div>
+      <div></div>
+      ${s.selected ? `
+      <div class="leg-controls">
+        <div class="control-group">
+          <label>Duration (sec)</label>
+          <input type="number" min="3" max="120" value="${s.duration_sec}"
+                 data-action="duration">
+        </div>
+        <div class="control-group">
+          <label>Camera</label>
+          <select data-action="camera">
+            <option value="static" ${s.camera === 'static' ? 'selected' : ''}>Static wide</option>
+            <option value="follow" ${s.camera === 'follow' ? 'selected' : ''}>Follow boat</option>
+            <option value="keyframe" ${s.camera === 'keyframe' ? 'selected' : ''}>Keyframe zoom</option>
+          </select>
+        </div>
+        <div class="control-group" style="grid-column: span 2;">
+          <label>Overlays</label>
+          <div class="overlay-toggles">
+            <label><input type="checkbox" data-action="overlay" data-key="date"
+              ${s.overlays.date ? 'checked' : ''}> date/time</label>
+            <label><input type="checkbox" data-action="overlay" data-key="distance"
+              ${s.overlays.distance ? 'checked' : ''}> distance</label>
+            <label><input type="checkbox" data-action="overlay" data-key="speed"
+              ${s.overlays.speed ? 'checked' : ''}> speed</label>
+          </div>
+        </div>
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function groupLegs() {
+  // Group by year for skimmability
+  const groups = {};
+  LEGS.forEach(l => {
+    const yr = (l.start || '').slice(0, 4) || '?';
+    (groups[yr] = groups[yr] || []).push(l);
+  });
+  return groups;
+}
+
+function render() {
+  const list = document.getElementById('leg-list');
+  const q = (document.getElementById('search').value || '').toLowerCase().trim();
+  const groups = groupLegs();
+  let html = '';
+  Object.keys(groups).sort().forEach(yr => {
+    const legs = groups[yr].filter(l => {
+      if (!q) return true;
+      return (l.name + ' ' + (l.description || '')).toLowerCase().includes(q);
+    });
+    if (!legs.length) return;
+    html += `<div class="group-header">${yr} · ${legs.length} legs</div>`;
+    legs.forEach(l => { html += legRowHtml(l); });
+  });
+  list.innerHTML = html;
+  updateStats();
+}
+
+function updateStats() {
+  const sel = Object.values(settings).filter(s => s.selected);
+  const totalSec = sel.reduce((a, s) => a + s.duration_sec, 0);
+  const totalNm = LEGS.filter(l => settings[l.id].selected)
+    .reduce((a, l) => a + (l.stated_nm || l.computed_nm || 0), 0);
+  document.getElementById('stats').textContent =
+    `${sel.length} legs selected · ${totalNm.toLocaleString(undefined, {maximumFractionDigits:0})} nm · ` +
+    `${Math.round(totalSec)} sec total runtime`;
+}
+
+// === EVENTS ===
+document.getElementById('leg-list').addEventListener('change', (e) => {
+  const row = e.target.closest('.leg-row');
+  if (!row) return;
+  const id = +row.dataset.id;
+  const action = e.target.dataset.action;
+  const s = settings[id];
+  if (action === 'toggle') {
+    s.selected = e.target.checked;
+    render();
+  } else if (action === 'duration') {
+    s.duration_sec = Math.max(3, Math.min(120, +e.target.value || 20));
+    updateStats();
+  } else if (action === 'camera') {
+    s.camera = e.target.value;
+  } else if (action === 'overlay') {
+    s.overlays[e.target.dataset.key] = e.target.checked;
+  }
+});
+
+document.getElementById('search').addEventListener('input', render);
+
+document.getElementById('select-all').onclick = () => {
+  Object.values(settings).forEach(s => s.selected = true);
+  render();
+};
+document.getElementById('select-none').onclick = () => {
+  Object.values(settings).forEach(s => s.selected = false);
+  render();
+};
+document.getElementById('select-crossings').onclick = () => {
+  Object.entries(settings).forEach(([id, s]) => {
+    s.selected = MAJOR_CROSSINGS.includes(+id);
+  });
+  render();
+};
+
+function buildConfigJson() {
+  const config = {
+    project: 'FarOtherSide',
+    basemap: 'nautical',
+    aspect: '16:9',
+    legs: LEGS
+      .filter(l => settings[l.id].selected)
+      .map(l => ({
+        id: l.id,
+        name: nameOnly(l.name),
+        geojson: `geojson/leg_${String(l.id).padStart(2, '0')}.geojson`,
+        duration_sec: settings[l.id].duration_sec,
+        camera: settings[l.id].camera,
+        overlays: settings[l.id].overlays,
+        stated_nm: l.stated_nm,
+        start: l.start,
+        end: l.end,
+      })),
+  };
+  return JSON.stringify(config, null, 2);
+}
+
+function downloadConfigFile(json) {
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'farotherside_config.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+document.getElementById('export-btn').onclick = () => {
+  const json = buildConfigJson();
+  // Trigger the file download right away
+  downloadConfigFile(json);
+  // Also show the preview modal so you can copy or re-download
+  document.getElementById('export-json').textContent = json;
+  document.getElementById('export-modal').classList.add('open');
+};
+
+document.getElementById('close-modal').onclick = () => {
+  document.getElementById('export-modal').classList.remove('open');
+};
+document.getElementById('copy-btn').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(document.getElementById('export-json').textContent);
+    document.getElementById('copy-btn').textContent = 'Copied!';
+    setTimeout(() => document.getElementById('copy-btn').textContent = 'Copy to clipboard', 1500);
+  } catch (e) {
+    document.getElementById('copy-btn').textContent = 'Select & copy manually';
+  }
+};
+document.getElementById('download-btn').onclick = () => {
+  downloadConfigFile(document.getElementById('export-json').textContent);
+};
+
+// Try to restore prior selection from localStorage
+try {
+  const saved = JSON.parse(localStorage.getItem('farotherside-leg-picker') || 'null');
+  if (saved) Object.entries(saved).forEach(([id, s]) => {
+    if (settings[id]) Object.assign(settings[id], s);
+  });
+} catch (e) { /* ignore */ }
+
+// Persist on change
+const persistObserver = new MutationObserver(() => {
+  try { localStorage.setItem('farotherside-leg-picker', JSON.stringify(settings)); }
+  catch (e) {}
+});
+setInterval(() => {
+  try { localStorage.setItem('farotherside-leg-picker', JSON.stringify(settings)); }
+  catch (e) {}
+}, 2000);
+
+render();
+</script>
+</body>
+</html>

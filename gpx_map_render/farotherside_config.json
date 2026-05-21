@@ -1,0 +1,22 @@
+{
+  "project": "FarOtherSide",
+  "basemap": "nautical",
+  "aspect": "16:9",
+  "legs": [
+    {
+      "id": 34,
+      "name": "Nuku Hiva to Fakarava",
+      "geojson": "geojson/leg_34.geojson",
+      "duration_sec": 15,
+      "camera": "static",
+      "overlays": {
+        "date": true,
+        "distance": true,
+        "speed": true
+      },
+      "stated_nm": 581.7,
+      "start": "2022-06-10T22:34:47+00:00",
+      "end": "2022-06-29T20:45:17+00:00"
+    }
+  ]
+}

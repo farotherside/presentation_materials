@@ -1,0 +1,2231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FarOtherSide — Leg Renderer</title>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.7.0/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.7.0/mapbox-gl.js"></script>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#0a1622; color:#e8eaed;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    font-size:14px; overflow:hidden; }
+  #app { display:grid; grid-template-columns: 320px 1fr; height:100vh; }
+  #sidebar { background:#10202e; border-right:1px solid #1f3447; overflow-y:auto;
+    padding:14px; }
+  #sidebar h2 { font-size:14px; font-weight:600; margin:0 0 8px 0; color:#9ec5e8; }
+  #sidebar h3 { font-size:12px; font-weight:600; margin:14px 0 6px 0;
+    color:#789bb8; text-transform:uppercase; letter-spacing:0.5px; }
+  .token-input { width:100%; box-sizing:border-box; padding:6px 8px;
+    background:#0a1622; border:1px solid #2a4960; color:#e8eaed; border-radius:4px;
+    font-family:ui-monospace,monospace; font-size:11px; }
+  .leg-item { padding:8px 10px; border-radius:5px; cursor:pointer; margin-bottom:3px;
+    border:1px solid transparent; font-size:13px; }
+  .leg-item:hover { background:#172a3c; }
+  .leg-item.active { background:#1a3a5e; border-color:#4a9eff; }
+  .leg-item.in-range { background:#152d44; border-color:#3a7ec4; }
+  .leg-item.in-range.active { background:#1a3a5e; border-color:#4a9eff; }
+  .leg-item .meta { font-size:11px; color:#789bb8; margin-top:2px; }
+  #combo-banner { padding:8px 10px; background:#1a3a5e; border:1px solid #4a9eff;
+    border-radius:5px; margin-bottom:6px; font-size:12px; }
+  #combo-banner .meta { font-size:11px; color:#cde4f5; margin-top:3px; }
+  #combo-banner button { padding:2px 8px; font-size:11px; background:#2a4960; }
+  #combo-banner button:hover { background:#3a5970; }
+  .btn-row { display:flex; gap:6px; margin:10px 0; flex-wrap:wrap; }
+  button { padding:6px 12px; background:#1a4d7a; color:white; border:none;
+    border-radius:4px; cursor:pointer; font-size:12px; font-weight:500; }
+  button:hover { background:#235d92; }
+  button:disabled { background:#2a3a4a; cursor:not-allowed; color:#789bb8; }
+  button.record { background:#a23a3a; }
+  button.record:hover { background:#bd4747; }
+  button.record.recording { background:#d04040; animation:pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+  button.secondary { background:#2a4960; }
+  #map-wrap { position:relative; }
+  #map { width:100%; height:100%; }
+  .overlay { position:absolute; pointer-events:none; color:white;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 12px rgba(0,0,0,0.5);
+    font-variant-numeric: tabular-nums; }
+  #ov-date { top:24px; left:24px; font-size:28px; font-weight:600;
+    font-family:Georgia,serif; letter-spacing:0.5px; }
+  #ov-leg { top:54px; left:24px; font-size:14px; color:#cde4f5;
+    text-transform:uppercase; letter-spacing:2px; font-weight:500; }
+  #ov-distance { bottom:36px; left:24px; font-size:24px; font-weight:600;
+    font-family:Georgia,serif; }
+  #ov-distance-label { bottom:24px; left:24px; font-size:11px; color:#cde4f5;
+    text-transform:uppercase; letter-spacing:1.5px; }
+  #ov-speed { bottom:36px; right:24px; font-size:24px; font-weight:600;
+    font-family:Georgia,serif; text-align:right; }
+  #ov-speed-label { bottom:24px; right:24px; font-size:11px; color:#cde4f5;
+    text-transform:uppercase; letter-spacing:1.5px; text-align:right; }
+  #ov-title { top:24px; right:24px; font-size:13px; color:#cde4f5;
+    letter-spacing:1px; text-align:right; max-width:300px; }
+  .overlay.hidden { display:none; }
+  .status { font-size:11px; color:#789bb8; margin-top:8px; min-height:14px; }
+  .empty { color:#789bb8; font-size:12px; padding:20px 0; text-align:center; }
+  details { margin-top:8px; font-size:12px; }
+  details summary { cursor:pointer; color:#789bb8; }
+  details code { display:block; margin-top:4px; padding:6px; background:#0a1622;
+    border:1px solid #2a4960; border-radius:3px; font-size:11px; }
+  .control-line { display:flex; gap:8px; align-items:center; margin:6px 0;
+    font-size:12px; }
+  .control-line label { color:#789bb8; flex:0 0 auto; }
+  .control-line select, .control-line input { flex:1; padding:3px 6px;
+    background:#0a1622; color:#e8eaed; border:1px solid #2a4960; border-radius:3px;
+    font-size:12px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h2>Voyage Renderer</h2>
+
+    <h3>1. Mapbox token</h3>
+    <input type="text" id="token" class="token-input" placeholder="pk.eyJ1...">
+    <div class="status" id="token-status">Paste your Mapbox public token (starts with pk.)</div>
+
+    <h3>2. Data source</h3>
+    <input type="file" id="gpx-input"
+           accept=".gpx,application/gpx+xml,application/xml,text/xml"
+           style="display:none">
+    <div class="btn-row">
+      <button class="secondary" id="gpx-load-btn" style="flex:1;">Load GPX file…</button>
+      <button class="secondary" id="gpx-reset-btn" style="flex:0 0 auto;"
+              title="Restore the built-in FarOtherSide voyage">Default</button>
+    </div>
+    <div class="status" id="gpx-status">
+      <span id="source-name">FarOtherSide (built-in, 84 legs)</span>
+    </div>
+    <div class="control-line">
+      <label>Title</label>
+      <input type="text" id="project-title" value="FAROTHERSIDE"
+             style="flex:1;padding:3px 6px;background:#0a1622;color:#e8eaed;
+                    border:1px solid #2a4960;border-radius:3px;font-size:12px;"
+             title="Shown in the overlay caption under the date">
+    </div>
+
+    <h3>3. Pick a leg</h3>
+    <input type="search" id="leg-search" placeholder="Search legs…"
+           style="width:100%;box-sizing:border-box;padding:5px 8px;background:#0a1622;
+                  border:1px solid #2a4960;color:#e8eaed;border-radius:4px;
+                  font-size:12px;margin-bottom:4px;">
+    <div style="font-size:10px;color:#789bb8;margin-bottom:6px;">
+      Click a leg to select it · Shift-click another to combine the range
+    </div>
+    <div id="combo-banner" style="display:none;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="flex:1;font-weight:500;" id="combo-banner-text">Combined</span>
+        <button id="combo-clear-btn" title="Drop the range and return to single-leg mode">Clear</button>
+      </div>
+      <div class="meta" id="combo-banner-meta"></div>
+    </div>
+    <div id="leg-list" class="leg-list"><div class="empty">Loading legs…</div></div>
+    <div class="status" id="config-status"></div>
+    <div id="cache-fallback" style="display:none;margin-top:6px;">
+      <div style="font-size:11px;color:#d4a04a;margin-bottom:4px;">
+        GeoJSON files not found at <code>./geojson/</code>.
+        Pick them once to cache them in this browser:
+      </div>
+      <input type="file" id="geojson-import" accept=".geojson" multiple style="display:none">
+      <button class="secondary" id="geojson-import-btn"
+              style="width:100%;font-size:11px;">
+        Import geojson folder (one-time)
+      </button>
+    </div>
+
+    <h3>4. Map style & track</h3>
+    <div class="control-line">
+      <label>Basemap</label>
+      <select id="style-input">
+        <optgroup label="— Dark / night —">
+          <option value="mapbox://styles/mapbox/navigation-night-v1">Navigation Night</option>
+          <option value="mapbox://styles/mapbox/dark-v11">Dark monochrome</option>
+          <option value="mapbox://styles/mapbox/standard|dusk">Standard 3D · Dusk</option>
+          <option value="mapbox://styles/mapbox/standard|night">Standard 3D · Night</option>
+          <option value="mapbox://styles/mapbox/standard-satellite|dusk">Standard Satellite · Dusk</option>
+          <option value="mapbox://styles/mapbox/standard-satellite|night">Standard Satellite · Night</option>
+        </optgroup>
+        <optgroup label="— Light / day —">
+          <option value="mapbox://styles/mapbox/light-v11">Light monochrome</option>
+          <option value="mapbox://styles/mapbox/navigation-day-v1">Navigation Day</option>
+          <option value="mapbox://styles/mapbox/streets-v12">Streets (day)</option>
+          <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors / terrain (day)</option>
+          <option value="mapbox://styles/mapbox/standard|day">Standard 3D · Day</option>
+          <option value="mapbox://styles/mapbox/standard|dawn">Standard 3D · Dawn</option>
+        </optgroup>
+        <optgroup label="— Satellite —">
+          <option value="mapbox://styles/mapbox/satellite-v9">Satellite imagery (raw)</option>
+          <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite + streets</option>
+          <option value="mapbox://styles/mapbox/standard-satellite|day">Standard Satellite · Day</option>
+          <option value="mapbox://styles/mapbox/standard-satellite|dawn">Standard Satellite · Dawn</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="control-line">
+      <label>Track color</label>
+      <input type="color" id="color-input" value="#ffd166" style="flex:0 0 50px;height:26px;padding:0;cursor:pointer;">
+      <select id="color-preset" style="flex:1;">
+        <option value="">— presets —</option>
+        <option value="#ffd166">Gold (default)</option>
+        <option value="#ff4f00">International Orange</option>
+        <option value="#ff6b6b">Coral red</option>
+        <option value="#4ecdc4">Teal</option>
+        <option value="#a78bfa">Lavender</option>
+        <option value="#34d399">Sea green</option>
+        <option value="#fbbf24">Amber</option>
+        <option value="#ffffff">White</option>
+        <option value="#000000">Black</option>
+      </select>
+    </div>
+    <div class="control-line">
+      <label>Line weight</label>
+      <input type="range" id="line-weight" min="1" max="6" step="0.5" value="2.5" style="flex:1;">
+      <span id="line-weight-val" style="color:#789bb8;font-size:11px;width:20px;">2.5</span>
+    </div>
+
+    <h3>5. Waypoints <span id="wpt-count" style="color:#789bb8;font-weight:400;font-size:11px;"></span></h3>
+    <div class="control-line">
+      <label>Show</label>
+      <label style="color:#e8eaed;font-size:11px;flex:1;">
+        <input type="checkbox" id="wpt-show" checked> Display on map
+      </label>
+      <label style="color:#e8eaed;font-size:11px;flex:0 0 auto;">
+        <input type="checkbox" id="wpt-label" checked> Labels
+      </label>
+    </div>
+    <div class="control-line">
+      <label>Icon</label>
+      <select id="wpt-icon" style="flex:1;">
+        <option value="circle">● Circle</option>
+        <option value="square">■ Square</option>
+        <option value="diamond">◆ Diamond</option>
+        <option value="triangle">▲ Triangle</option>
+        <option value="star">★ Star</option>
+        <option value="cross">✚ Cross</option>
+        <option value="pin">📍 Pin</option>
+        <option value="anchor">⚓ Anchor</option>
+      </select>
+    </div>
+    <div class="control-line">
+      <label>Wpt color</label>
+      <input type="color" id="wpt-color" value="#ff4f00" style="flex:0 0 50px;height:26px;padding:0;cursor:pointer;">
+      <select id="wpt-color-preset" style="flex:1;">
+        <option value="">— presets —</option>
+        <option value="#ff4f00">International Orange</option>
+        <option value="#ffd166">Gold</option>
+        <option value="#ff6b6b">Coral red</option>
+        <option value="#4ecdc4">Teal</option>
+        <option value="#a78bfa">Lavender</option>
+        <option value="#34d399">Sea green</option>
+        <option value="#fbbf24">Amber</option>
+        <option value="#ffffff">White</option>
+        <option value="#000000">Black</option>
+      </select>
+    </div>
+    <div class="control-line">
+      <label>Size</label>
+      <input type="range" id="wpt-size" min="6" max="40" step="1" value="14" style="flex:1;">
+      <span id="wpt-size-val" style="color:#789bb8;font-size:11px;width:24px;">14</span>
+    </div>
+
+    <h3>6. Output resolution</h3>
+    <div class="control-line">
+      <label>Preset</label>
+      <select id="res-preset">
+        <option value="1920x1080">1080p — 1920×1080 (16:9)</option>
+        <option value="3840x2160">4K UHD — 3840×2160 (16:9)</option>
+        <option value="1280x720">720p — 1280×720 (16:9)</option>
+        <option value="2560x1440">1440p — 2560×1440 (16:9)</option>
+        <option value="1080x1080">Square — 1080×1080 (1:1)</option>
+        <option value="1080x1920">Vertical — 1080×1920 (9:16)</option>
+        <option value="2048x858">Cinema 2K — 2048×858 (2.39:1)</option>
+        <option value="custom">Custom…</option>
+      </select>
+    </div>
+    <div class="control-line">
+      <label>Size</label>
+      <input type="number" id="res-w" min="320" max="7680" value="1920"
+             style="flex:1;" title="Width in pixels">
+      <span style="color:#789bb8;font-size:11px;">×</span>
+      <input type="number" id="res-h" min="240" max="4320" value="1080"
+             style="flex:1;" title="Height in pixels">
+    </div>
+    <div class="control-line">
+      <label>FPS</label>
+      <select id="res-fps" style="flex:1;">
+        <option value="30">30 fps</option>
+        <option value="60">60 fps</option>
+        <option value="24">24 fps (cinema)</option>
+      </select>
+      <label style="color:#789bb8;font-size:11px;flex:0 0 auto;">
+        Bitrate</label>
+      <select id="res-bitrate" style="flex:0 0 88px;">
+        <option value="6">6 Mbps</option>
+        <option value="12" selected>12 Mbps</option>
+        <option value="24">24 Mbps</option>
+        <option value="48">48 Mbps</option>
+      </select>
+    </div>
+
+    <h3>7. Per-leg controls</h3>
+    <div class="control-line">
+      <label>Duration</label>
+      <input type="number" id="dur-input" min="3" max="120" value="20">
+      <span style="color:#789bb8;font-size:11px;">sec</span>
+    </div>
+    <div class="control-line">
+      <label>Camera</label>
+      <select id="cam-input">
+        <option value="static">Static wide</option>
+        <option value="follow">Follow boat</option>
+        <option value="keyframe">Keyframe zoom</option>
+      </select>
+    </div>
+    <div class="control-line" id="follow-zoom-row" style="display:none;">
+      <label>Follow zoom</label>
+      <input type="range" id="follow-zoom" min="1" max="14" step="0.25" value="5" style="flex:1;">
+      <span id="follow-zoom-val" style="color:#789bb8;font-size:11px;width:28px;">5.0</span>
+    </div>
+    <div class="control-line">
+      <label>Trim start</label>
+      <input type="range" id="trim-start" min="0" max="100" step="0.1" value="0" style="flex:1;">
+      <span id="trim-start-val" style="color:#789bb8;font-size:11px;width:42px;">0.0%</span>
+    </div>
+    <div class="control-line">
+      <label>Trim end</label>
+      <input type="range" id="trim-end" min="0" max="100" step="0.1" value="100" style="flex:1;">
+      <span id="trim-end-val" style="color:#789bb8;font-size:11px;width:42px;">100.0%</span>
+    </div>
+    <div class="control-line">
+      <button class="secondary" id="trim-preview" style="flex:1;font-size:11px;padding:4px 8px;"
+              title="Show only the trimmed track on the map and zoom to it">Show trim on map</button>
+      <button class="secondary" id="trim-reset" style="flex:0 0 auto;font-size:11px;padding:4px 8px;"
+              title="Reset trim to full track">Reset</button>
+    </div>
+    <div class="control-line" style="flex-wrap:wrap;">
+      <label>Overlays</label>
+      <label style="flex:0 0 auto;color:#e8eaed;font-size:11px;">
+        <input type="checkbox" id="ov-date-tog" checked> date</label>
+      <label style="flex:0 0 auto;color:#e8eaed;font-size:11px;">
+        <input type="checkbox" id="ov-dist-tog" checked> dist</label>
+      <label style="flex:0 0 auto;color:#e8eaed;font-size:11px;">
+        <input type="checkbox" id="ov-speed-tog"> speed</label>
+    </div>
+    <div class="control-line"
+         title="Window for the speed running-average, as % of the leg's points. 0% = instantaneous, 25% = heavy smoothing.">
+      <label>Speed smooth</label>
+      <input type="range" id="speed-smooth" min="0" max="25" step="1" value="3" style="flex:1;">
+      <span id="speed-smooth-val" style="color:#789bb8;font-size:11px;width:42px;">3%</span>
+    </div>
+    <div class="control-line"
+         title="How often the on-screen speed number updates during animation. 0 = every frame, 5 = once every 5 seconds of animation time.">
+      <label>Speed update</label>
+      <input type="range" id="speed-update" min="0" max="5" step="0.1" value="0" style="flex:1;">
+      <span id="speed-update-val" style="color:#789bb8;font-size:11px;width:54px;">realtime</span>
+    </div>
+
+    <h3>8. Preview / Record</h3>
+    <div class="btn-row">
+      <button id="preview-btn" disabled title="Pick a leg from the list first.">Preview</button>
+      <button id="record-btn" class="record" disabled title="Pick a leg from the list first.">● Record</button>
+      <button id="frame-btn" class="secondary" disabled title="Pick a leg from the list first.">Save PNG</button>
+    </div>
+    <div class="status" id="render-status"></div>
+
+    <details>
+      <summary>Convert WebM → MP4</summary>
+      <code>ffmpeg -i leg_NN.webm -c:v libx264 -pix_fmt yuv420p -crf 18 leg_NN.mp4</code>
+      <small style="color:#789bb8;">Install ffmpeg on Mac: <code>brew install ffmpeg</code><br>
+      (Keynote and most conference AV systems play WebM natively, so MP4 may be optional.)</small>
+    </details>
+  </div>
+
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div class="overlay" id="ov-leg">FarOtherSide</div>
+    <div class="overlay" id="ov-title"></div>
+    <div class="overlay" id="ov-date">—</div>
+    <div class="overlay" id="ov-distance">0 nm</div>
+    <div class="overlay" id="ov-distance-label">distance</div>
+    <div class="overlay" id="ov-speed">0.0 kn</div>
+    <div class="overlay" id="ov-speed-label">speed</div>
+  </div>
+</div>
+
+<script>
+// === INLINE LEG METADATA (FarOtherSide baseline — replaced when a custom
+// GPX is loaded; the originals are kept in DEFAULT_LEGS so "Default" restores)
+let INLINE_LEGS = [{"id":1,"name":"20171122 - San Francisco to San Diego","description":"San Francisco to San Diego","start":"2017-11-22T14:22:48+00:00","end":"2017-11-29T00:55:52+00:00","duration_hours":154.55,"points":1199,"stated_nm":463.1,"computed_nm":463.1,"avg_speed_kn":3.0,"max_speed_kn":8.67,"bbox":[-122.926542,32.622191,-117.228281,36.976699]},{"id":2,"name":"20171209 - Ensenada to La Paz","description":"Ensenada to La Paz","start":"2017-12-09T20:38:15+00:00","end":"2017-12-20T18:39:00+00:00","duration_hours":262.01,"points":3003,"stated_nm":1124.5,"computed_nm":977.5,"avg_speed_kn":3.73,"max_speed_kn":19.94,"bbox":[-116.93514,22.782734,-109.328093,31.848528]},{"id":3,"name":"20180313 - Mulege to San Carlos","description":"Mulege to San Carlos","start":"2018-03-13T21:51:15+00:00","end":"2018-03-16T16:35:39+00:00","duration_hours":66.74,"points":220,"stated_nm":129.4,"computed_nm":129.4,"avg_speed_kn":1.94,"max_speed_kn":7.99,"bbox":[-111.961668,26.64485,-111.057334,27.947098]},{"id":4,"name":"20191109 - San Carlos to Mulege","description":"San Carlos to Mulege","start":"2019-11-09T13:34:41+00:00","end":"2019-11-12T18:40:15+00:00","duration_hours":77.09,"points":140,"stated_nm":94.2,"computed_nm":94.2,"avg_speed_kn":1.22,"max_speed_kn":9.79,"bbox":[-111.962385,26.75378,-111.056239,27.929865]},{"id":5,"name":"20191113 - Mulege to Loreto","description":"Mulege to Loreto","start":"2019-11-13T21:00:10+00:00","end":"2019-11-18T02:21:43+00:00","duration_hours":101.36,"points":151,"stated_nm":99.9,"computed_nm":99.9,"avg_speed_kn":0.99,"max_speed_kn":6.65,"bbox":[-111.885937,25.723886,-111.235867,26.909498]},{"id":6,"name":"20191119 - Loreto to La Paz","description":"Loreto to La Paz","start":"2019-11-19T03:48:09+00:00","end":"2019-12-09T03:40:21+00:00","duration_hours":479.87,"points":334,"stated_nm":170.2,"computed_nm":170.2,"avg_speed_kn":0.35,"max_speed_kn":15.65,"bbox":[-111.235299,24.15887,-110.302906,25.726591]},{"id":7,"name":"20191210 - La Paz to Los Islotes","description":"La Paz to Los Islotes","start":"2019-12-10T07:03:21+00:00","end":"2019-12-29T08:39:08+00:00","duration_hours":457.6,"points":201,"stated_nm":78.6,"computed_nm":78.6,"avg_speed_kn":0.17,"max_speed_kn":11.72,"bbox":[-110.413863,24.1575,-110.303078,24.560926]},{"id":8,"name":"20200104 - La Paz to San Blas","description":"La Paz to San Blas","start":"2020-01-04T18:00:30+00:00","end":"2020-01-10T00:29:01+00:00","duration_hours":126.48,"points":894,"stated_nm":402.4,"computed_nm":402.4,"avg_speed_kn":3.18,"max_speed_kn":18.97,"bbox":[-110.346859,21.505093,-105.243035,24.394283]},{"id":9,"name":"20200113 - San Blas to La Cruz","description":"San Blas to La Cruz","start":"2020-01-13T14:35:16+00:00","end":"2020-03-21T23:39:56+00:00","duration_hours":1641.08,"points":227,"stated_nm":108.5,"computed_nm":108.5,"avg_speed_kn":0.07,"max_speed_kn":15.61,"bbox":[-105.56267,20.489909,-105.242345,21.544103]},{"id":10,"name":"20200323 - La Cruz to Barra de Navidad","description":"La Cruz to Barra de Navidad","start":"2020-03-23T17:35:58+00:00","end":"2020-04-29T04:09:30+00:00","duration_hours":874.56,"points":806,"stated_nm":166.9,"computed_nm":166.9,"avg_speed_kn":0.19,"max_speed_kn":18.63,"bbox":[-105.757051,19.181286,-104.672119,20.767427]},{"id":11,"name":"20200504 - Barra de Navidad to Lahaina, Maui","description":"Barra de Navidad to Lahaina, Maui","start":"2020-05-04T17:22:43+00:00","end":"2020-06-11T23:39:15+00:00","duration_hours":918.28,"points":17691,"stated_nm":3155.5,"computed_nm":3155.5,"avg_speed_kn":3.44,"max_speed_kn":19.95,"bbox":[-156.706282,18.181302,-104.675758,22.309889]},{"id":12,"name":"20200616 - Maui to Honolulu","description":"Maui to Honolulu","start":"2020-06-16T07:59:22+00:00","end":"2020-06-18T15:29:13+00:00","duration_hours":55.5,"points":632,"stated_nm":93.6,"computed_nm":93.6,"avg_speed_kn":1.69,"max_speed_kn":17.95,"bbox":[-157.846208,20.720808,-156.61909,21.286814]},{"id":13,"name":"20200620 - Honolulu to Kauai","description":"Honolulu to Kauai","start":"2020-06-20T23:48:15+00:00","end":"2020-06-23T03:44:55+00:00","duration_hours":51.94,"points":824,"stated_nm":105.9,"computed_nm":105.9,"avg_speed_kn":2.04,"max_speed_kn":17.25,"bbox":[-159.359155,21.229636,-157.83142,21.971779]},{"id":14,"name":"20200626 - Cruising Kauai","description":"Kauai","start":"2020-06-26T22:25:01+00:00","end":"2020-07-16T04:58:29+00:00","duration_hours":462.56,"points":665,"stated_nm":62.3,"computed_nm":62.3,"avg_speed_kn":0.13,"max_speed_kn":15.89,"bbox":[-159.67918,21.949775,-159.27209,22.299163]},{"id":15,"name":"20200723 - Hanalei, Kauai to Victoria, Canada","description":"Kauai to Victoria, Canada","start":"2020-07-23T07:20:45+00:00","end":"2020-09-04T22:06:46+00:00","duration_hours":1046.77,"points":19181,"stated_nm":3114.0,"computed_nm":3114.0,"avg_speed_kn":2.97,"max_speed_kn":20.0,"bbox":[-159.956466,22.223711,-123.225891,49.291167]},{"id":16,"name":"20201002 - Vancouver to Sydney","description":"Vancouver to Sydney","start":"2020-10-02T13:12:54+00:00","end":"2020-12-11T20:52:39+00:00","duration_hours":1687.66,"points":237,"stated_nm":73.1,"computed_nm":73.1,"avg_speed_kn":0.04,"max_speed_kn":18.94,"bbox":[-123.595362,48.65162,-123.136594,49.29713]},{"id":17,"name":"20201214 - Sydney to Vancouver","description":"Sydney to Vancouver","start":"2020-12-14T17:09:25+00:00","end":"2020-12-15T03:14:43+00:00","duration_hours":10.09,"points":169,"stated_nm":54.2,"computed_nm":54.2,"avg_speed_kn":5.37,"max_speed_kn":16.99,"bbox":[-123.596247,48.652811,-123.106716,49.294227]},{"id":18,"name":"20201221 - Vancouver to Sydney","description":"Vancouver to Sydney","start":"2020-12-21T18:13:58+00:00","end":"2021-02-19T00:13:36+00:00","duration_hours":1421.99,"points":254,"stated_nm":59.1,"computed_nm":59.1,"avg_speed_kn":0.04,"max_speed_kn":17.47,"bbox":[-123.394634,48.651224,-123.114388,49.296225]},{"id":19,"name":"20210222 - Pender Island to Vancouver","description":"Pender Island to Vancouver","start":"2021-02-22T04:15:19+00:00","end":"2021-03-06T23:09:57+00:00","duration_hours":306.91,"points":203,"stated_nm":59.6,"computed_nm":59.6,"avg_speed_kn":0.19,"max_speed_kn":17.41,"bbox":[-123.724387,48.796436,-123.10587,49.29336]},{"id":20,"name":"20210325 - Vancouver to Pender Island","description":"Vancouver to Pender Island","start":"2021-03-25T16:46:51+00:00","end":"2021-03-26T02:00:01+00:00","duration_hours":9.22,"points":189,"stated_nm":43.7,"computed_nm":43.7,"avg_speed_kn":4.74,"max_speed_kn":19.88,"bbox":[-123.348732,48.768621,-123.136183,49.295625]},{"id":21,"name":"20210401 - Pender Island to Vancouver","description":"Pender Island to Vancouver","start":"2021-04-01T17:42:39+00:00","end":"2021-07-08T10:09:48+00:00","duration_hours":2344.45,"points":287,"stated_nm":77.7,"computed_nm":77.7,"avg_speed_kn":0.03,"max_speed_kn":13.39,"bbox":[-123.595284,48.767768,-123.105901,49.291549]},{"id":22,"name":"20210709 - Vancouver to Sydney","description":"Vancouver to Sydney","start":"2021-07-09T17:33:29+00:00","end":"2021-07-10T16:59:12+00:00","duration_hours":23.43,"points":128,"stated_nm":47.7,"computed_nm":47.7,"avg_speed_kn":2.04,"max_speed_kn":14.55,"bbox":[-123.394705,48.652937,-123.126847,49.295108]},{"id":23,"name":"20210810 - Sydney to Vancouver","description":"Sydney to Vancouver","start":"2021-08-10T23:00:27+00:00","end":"2021-09-17T08:05:05+00:00","duration_hours":897.08,"points":209,"stated_nm":59.9,"computed_nm":59.9,"avg_speed_kn":0.07,"max_speed_kn":9.78,"bbox":[-123.59544,48.652345,-123.106292,49.293643]},{"id":24,"name":"20210920 - Vancouver to Port Angeles, USA","description":"Vancouver to Port Angeles","start":"2021-09-20T14:54:24+00:00","end":"2021-09-24T12:53:24+00:00","duration_hours":93.98,"points":408,"stated_nm":91.6,"computed_nm":91.6,"avg_speed_kn":0.98,"max_speed_kn":19.36,"bbox":[-123.427428,48.119948,-123.114415,49.292735]},{"id":25,"name":"20210929 - Port Angeles to Oakland, CA","description":"Port Angeles to Oakland","start":"2021-09-29T05:44:54+00:00","end":"2021-10-30T02:05:38+00:00","duration_hours":740.35,"points":5560,"stated_nm":1045.4,"computed_nm":1045.4,"avg_speed_kn":1.41,"max_speed_kn":19.96,"bbox":[-126.717962,37.718071,-122.276928,48.473161]},{"id":26,"name":"20211227 - Oakland to Santa Cruz Island","description":"Oakland to Santa Cruz Island","start":"2021-12-27T16:39:12+00:00","end":"2022-01-04T17:39:38+00:00","duration_hours":193.01,"points":1669,"stated_nm":337.4,"computed_nm":337.4,"avg_speed_kn":1.75,"max_speed_kn":18.6,"bbox":[-122.636317,34.045979,-119.544111,37.820025]},{"id":27,"name":"20220106 - Santa Cruz Island to Los Angeles","description":"Santa Cruz Island to Los Angeles","start":"2022-01-06T15:39:30+00:00","end":"2022-01-07T01:05:00+00:00","duration_hours":9.43,"points":37,"stated_nm":46.9,"computed_nm":46.9,"avg_speed_kn":4.97,"max_speed_kn":15.37,"bbox":[-119.366541,33.958593,-118.44662,34.039615]},{"id":28,"name":"20220108 - LA to Santa Catalina","description":"LA to Santa Catalina","start":"2022-01-08T03:00:00+00:00","end":"2022-01-09T01:09:21+00:00","duration_hours":22.16,"points":131,"stated_nm":36.7,"computed_nm":36.7,"avg_speed_kn":1.66,"max_speed_kn":18.08,"bbox":[-118.486456,33.394116,-118.360534,33.97633]},{"id":29,"name":"20220110 - Santa Catalina to San Diego","description":"Santa Catalina to San Diego","start":"2022-01-10T04:49:27+00:00","end":"2022-01-11T22:56:48+00:00","duration_hours":42.12,"points":298,"stated_nm":79.2,"computed_nm":79.2,"avg_speed_kn":1.88,"max_speed_kn":19.45,"bbox":[-118.367818,32.654069,-117.185006,33.394041]},{"id":30,"name":"20220122 - San Diego to La Ventana, Mexico","description":"San Diego to La Ventana","start":"2022-01-22T22:52:07+00:00","end":"2022-02-16T18:40:48+00:00","duration_hours":595.81,"points":4448,"stated_nm":954.0,"computed_nm":954.0,"avg_speed_kn":1.6,"max_speed_kn":19.66,"bbox":[-117.235218,22.859091,-109.377791,32.72183]},{"id":31,"name":"20220403 - La Ventana to La Paz","description":"La Ventana to La Paz","start":"2022-04-03T12:43:27+00:00","end":"2022-04-05T15:45:06+00:00","duration_hours":51.03,"points":184,"stated_nm":40.8,"computed_nm":40.8,"avg_speed_kn":0.8,"max_speed_kn":18.67,"bbox":[-110.344644,24.094673,-109.979431,24.363103]},{"id":32,"name":"20220406 - La Ventana to Los Cabos","description":"La Ventana to Los Cabos","start":"2022-04-06T17:15:19+00:00","end":"2022-04-07T15:51:53+00:00","duration_hours":22.61,"points":384,"stated_nm":89.4,"computed_nm":89.4,"avg_speed_kn":3.95,"max_speed_kn":18.63,"bbox":[-109.986619,23.047949,-109.36852,24.093715]},{"id":33,"name":"20220408 - Los Cabos to Nuku Hiva, French Polynesia","description":"Los Cabos to Nuku Hiva, French Polynesia","start":"2022-04-08T21:41:18+00:00","end":"2022-06-07T19:36:34+00:00","duration_hours":1437.92,"points":17077,"stated_nm":2982.1,"computed_nm":2982.1,"avg_speed_kn":2.07,"max_speed_kn":20.0,"bbox":[-140.166823,-9.358936,-109.623568,23.063023]},{"id":34,"name":"20220610 - Nuku Hiva to Fakarava","description":"Nuku Hiva to Fakarava","start":"2022-06-10T22:34:47+00:00","end":"2022-06-29T20:45:17+00:00","duration_hours":454.18,"points":2529,"stated_nm":581.7,"computed_nm":581.7,"avg_speed_kn":1.28,"max_speed_kn":19.74,"bbox":[-145.713838,-16.506913,-140.044785,-9.301725]},{"id":35,"name":"20220705 - Fakarava to Tahiti","description":"Fakarava to Tahiti","start":"2022-07-05T18:12:45+00:00","end":"2022-07-09T23:16:21+00:00","duration_hours":101.06,"points":1414,"stated_nm":267.9,"computed_nm":267.9,"avg_speed_kn":2.65,"max_speed_kn":19.5,"bbox":[-149.622616,-17.577828,-145.45201,-16.503453]},{"id":36,"name":"20220711 - Cruising Tahiti / Moorea","description":"Tahiti / Moorea","start":"2022-07-11T05:01:38+00:00","end":"2022-07-24T00:42:37+00:00","duration_hours":307.68,"points":331,"stated_nm":74.0,"computed_nm":74.0,"avg_speed_kn":0.24,"max_speed_kn":18.94,"bbox":[-149.8782,-17.552363,-149.569212,-17.461605]},{"id":37,"name":"20220727 - Tahiti to Bora Bora","description":"Tahiti to Bora Bora","start":"2022-07-27T00:16:23+00:00","end":"2022-08-01T00:27:43+00:00","duration_hours":120.19,"points":847,"stated_nm":143.2,"computed_nm":143.2,"avg_speed_kn":1.19,"max_speed_kn":19.16,"bbox":[-151.795416,-17.492916,-149.852652,-16.492772]},{"id":38,"name":"20220802 - Bora Bora to American Samoa","description":"Bora Bora to American Samoa","start":"2022-08-02T00:57:34+00:00","end":"2022-08-16T17:24:30+00:00","duration_hours":352.45,"points":6600,"stated_nm":1208.3,"computed_nm":1208.3,"avg_speed_kn":3.43,"max_speed_kn":19.99,"bbox":[-170.695331,-16.51632,-151.752932,-13.157994]},{"id":39,"name":"20220823 - American Samoa to Western Samoa","description":"American Samoa to Western Samoa","start":"2022-08-23T08:14:08+00:00","end":"2022-08-28T02:47:04+00:00","duration_hours":114.55,"points":631,"stated_nm":84.2,"computed_nm":84.2,"avg_speed_kn":0.74,"max_speed_kn":19.32,"bbox":[-171.764528,-14.414341,-170.667369,-13.813961]},{"id":40,"name":"20220903 - Western Samoa to Fiji","description":"Western Samoa to Fiji","start":"2022-09-03T06:53:13+00:00","end":"2022-09-09T18:38:19+00:00","duration_hours":155.75,"points":3719,"stated_nm":602.2,"computed_nm":602.2,"avg_speed_kn":3.87,"max_speed_kn":19.96,"bbox":[-179.998443,-17.074851,179.998944,-13.726803]},{"id":41,"name":"20220914 - Cruising Fiji","description":"Cruising Fiji","start":"2022-09-14T23:01:36+00:00","end":"2022-10-08T03:12:14+00:00","duration_hours":556.18,"points":2000,"stated_nm":399.6,"computed_nm":348.0,"avg_speed_kn":0.63,"max_speed_kn":19.66,"bbox":[177.12365,-17.81053,179.900116,-16.775927]},{"id":42,"name":"20221009 - Fiji to Vanuatu","description":"Fiji to Vanuatu","start":"2022-10-09T05:20:22+00:00","end":"2022-10-14T10:41:11+00:00","duration_hours":125.35,"points":4129,"stated_nm":565.5,"computed_nm":565.5,"avg_speed_kn":4.51,"max_speed_kn":19.9,"bbox":[168.226805,-17.865585,177.383695,-17.457712]},{"id":43,"name":"20221111 - Vanuatu to New Caledonia","description":"Vanuatu to New Caledonia","start":"2022-11-11T02:14:01+00:00","end":"2022-11-15T22:41:09+00:00","duration_hours":116.45,"points":2022,"stated_nm":377.7,"computed_nm":377.7,"avg_speed_kn":3.24,"max_speed_kn":19.02,"bbox":[166.422695,-22.407148,168.830626,-17.739016]},{"id":44,"name":"20221119 - New Caledonia to Coffs Harbour, Australia","description":"New Caledonia to Coffs Harbour, Australia","start":"2022-11-19T22:35:56+00:00","end":"2022-12-17T13:50:18+00:00","duration_hours":663.24,"points":7076,"stated_nm":950.1,"computed_nm":950.1,"avg_speed_kn":1.43,"max_speed_kn":14.88,"bbox":[153.143123,-30.446176,166.436497,-22.276482]},{"id":45,"name":"20221221 - Coffs Harbour to Sydney, Australia","description":"Coffs Harbour to Sydney, Australia","start":"2022-12-21T03:26:34+00:00","end":"2023-01-04T00:46:38+00:00","duration_hours":333.33,"points":1909,"stated_nm":295.5,"computed_nm":295.5,"avg_speed_kn":0.89,"max_speed_kn":12.25,"bbox":[151.185609,-33.872371,153.225626,-30.304919]},{"id":46,"name":"20230107 - Sydney to Coffs Harbour","description":"Sydney to Coffs Harbour","start":"2023-01-07T01:14:05+00:00","end":"2023-01-18T08:10:09+00:00","duration_hours":270.93,"points":1824,"stated_nm":315.4,"computed_nm":274.2,"avg_speed_kn":1.01,"max_speed_kn":9.18,"bbox":[151.185477,-33.871982,153.211659,-30.304054]},{"id":47,"name":"20230426 - Coffs Harbour to Gold Coast","description":"Coffs Harbour to Gold Coast","start":"2023-04-26T05:39:15+00:00","end":"2023-04-28T05:04:29+00:00","duration_hours":47.42,"points":1405,"stated_nm":185.0,"computed_nm":185.0,"avg_speed_kn":3.9,"max_speed_kn":9.52,"bbox":[153.145047,-30.314644,154.100356,-27.933754]},{"id":48,"name":"20230429 - Gold Coast to Brisbane","description":"Gold Coast to Brisbane","start":"2023-04-29T07:04:18+00:00","end":"2023-05-03T03:06:01+00:00","duration_hours":92.03,"points":278,"stated_nm":50.1,"computed_nm":50.1,"avg_speed_kn":0.54,"max_speed_kn":11.67,"bbox":[153.1907,-27.950291,153.438355,-27.443525]},{"id":49,"name":"20230505 - Brisbane to Double Island","description":"Brisbane to Double Island","start":"2023-05-05T05:36:55+00:00","end":"2023-05-06T23:51:23+00:00","duration_hours":42.24,"points":616,"stated_nm":107.8,"computed_nm":107.8,"avg_speed_kn":2.55,"max_speed_kn":13.07,"bbox":[153.161387,-27.452786,153.394419,-25.917405]},{"id":50,"name":"20230508 - Double Island to Lady Musgrave Island","description":"Double Island to Lady Musgrave Island","start":"2023-05-08T03:06:49+00:00","end":"2023-05-11T04:03:11+00:00","duration_hours":72.94,"points":1355,"stated_nm":167.2,"computed_nm":167.2,"avg_speed_kn":2.29,"max_speed_kn":10.67,"bbox":[152.384104,-25.949972,153.529871,-23.889498]},{"id":51,"name":"20230512 - Lady Musgrave Island to Gladstone","description":"Lady Musgrave Island to Gladstone","start":"2023-05-12T06:27:03+00:00","end":"2023-05-30T06:15:10+00:00","duration_hours":431.8,"points":536,"stated_nm":81.8,"computed_nm":81.8,"avg_speed_kn":0.19,"max_speed_kn":12.3,"bbox":[151.235635,-24.032712,152.411879,-23.775684]},{"id":52,"name":"20230531 - Gladstone to Keppel Island","description":"Gladstone to Keppel Island","start":"2023-05-31T06:54:45+00:00","end":"2023-06-04T03:56:15+00:00","duration_hours":93.03,"points":324,"stated_nm":57.5,"computed_nm":57.5,"avg_speed_kn":0.62,"max_speed_kn":12.55,"bbox":[150.875639,-23.775851,151.324571,-23.064248]},{"id":53,"name":"20230605 - Keppel Island to Port Clinton","description":"Keppel Island to Port Clinton","start":"2023-06-05T10:09:05+00:00","end":"2023-06-06T06:35:45+00:00","duration_hours":20.44,"points":284,"stated_nm":38.3,"computed_nm":38.3,"avg_speed_kn":1.87,"max_speed_kn":11.61,"bbox":[150.749451,-23.063898,150.884689,-22.513658]},{"id":54,"name":"20230607 - Port Clinton to Middle Percy Island","description":"Port Clinton to Middle Percy Island","start":"2023-06-07T10:01:47+00:00","end":"2023-06-09T04:26:34+00:00","duration_hours":42.41,"points":386,"stated_nm":70.4,"computed_nm":70.4,"avg_speed_kn":1.66,"max_speed_kn":16.59,"bbox":[150.235076,-22.546149,150.783353,-21.652589]},{"id":55,"name":"20230611 - Middle Percy Island to Mackay","description":"Middle Percy Island to Mackay","start":"2023-06-11T19:21:09+00:00","end":"2023-06-23T01:29:12+00:00","duration_hours":270.13,"points":547,"stated_nm":100.9,"computed_nm":100.9,"avg_speed_kn":0.37,"max_speed_kn":17.34,"bbox":[149.226469,-21.649883,150.241809,-20.913757]},{"id":56,"name":"20230624 - Mackay to Airlie Beach","description":"Mackay to Airlie Beach","start":"2023-06-24T01:29:16+00:00","end":"2023-06-29T04:38:02+00:00","duration_hours":123.15,"points":385,"stated_nm":76.0,"computed_nm":76.0,"avg_speed_kn":0.62,"max_speed_kn":15.99,"bbox":[148.722046,-21.110514,149.310277,-20.228451]},{"id":57,"name":"20230702 - Cruising Whitsundays","description":"Cruising Whitsundays","start":"2023-07-02T11:03:48+00:00","end":"2023-07-08T15:56:55+00:00","duration_hours":148.89,"points":458,"stated_nm":77.5,"computed_nm":77.5,"avg_speed_kn":0.52,"max_speed_kn":11.34,"bbox":[148.721978,-20.338458,149.093384,-20.083227]},{"id":58,"name":"20230710 - Airlie Beach to Magnetic Island","description":"Airlie Beach to Magnetic Island","start":"2023-07-10T00:54:32+00:00","end":"2023-07-19T03:17:26+00:00","duration_hours":218.38,"points":1429,"stated_nm":201.0,"computed_nm":201.0,"avg_speed_kn":0.92,"max_speed_kn":12.77,"bbox":[146.821514,-20.260619,149.063912,-19.099383]},{"id":59,"name":"20230723 - Magnetic Island to Cairns","description":"Magnetic Island to Cairns","start":"2023-07-23T02:47:22+00:00","end":"2023-07-25T06:20:50+00:00","duration_hours":51.56,"points":931,"stated_nm":161.2,"computed_nm":161.2,"avg_speed_kn":3.13,"max_speed_kn":15.75,"bbox":[145.785784,-19.110298,146.859397,-16.855539]},{"id":60,"name":"20230729 - Cairns to Lizard Island","description":"Cairns to Lizard Island","start":"2023-07-29T08:38:37+00:00","end":"2023-08-01T10:01:44+00:00","duration_hours":73.39,"points":922,"stated_nm":144.5,"computed_nm":144.5,"avg_speed_kn":1.97,"max_speed_kn":16.72,"bbox":[145.37896,-16.918622,145.817477,-14.661168]},{"id":61,"name":"20230803 - Lizard Island to Thursday Island","description":"Lizard Island to Thursday Island","start":"2023-08-03T19:10:53+00:00","end":"2023-08-14T07:23:21+00:00","duration_hours":252.21,"points":2052,"stated_nm":371.0,"computed_nm":371.0,"avg_speed_kn":1.47,"max_speed_kn":19.93,"bbox":[142.154747,-14.659035,145.447509,-10.557053]},{"id":62,"name":"20230815 - Thursday Island to Broome","description":"Thursday Island to Broome","start":"2023-08-15T07:25:04+00:00","end":"2023-08-31T13:42:02+00:00","duration_hours":390.28,"points":8831,"stated_nm":1466.8,"computed_nm":1466.8,"avg_speed_kn":3.76,"max_speed_kn":19.93,"bbox":[121.957958,-18.013843,142.154555,-10.526856]},{"id":63,"name":"20230905 - Broome to Exmouth","description":"Broome to Exmouth","start":"2023-09-05T22:01:35+00:00","end":"2023-09-13T13:03:47+00:00","duration_hours":183.04,"points":3278,"stated_nm":661.8,"computed_nm":661.8,"avg_speed_kn":3.62,"max_speed_kn":19.9,"bbox":[114.141043,-21.959392,122.237822,-17.690064]},{"id":64,"name":"20230920 - Exmouth to Carnarvon","description":"Exmouth to Carnarvon","start":"2023-09-20T04:27:27+00:00","end":"2023-09-24T05:41:53+00:00","duration_hours":97.24,"points":1688,"stated_nm":347.9,"computed_nm":347.9,"avg_speed_kn":3.58,"max_speed_kn":19.1,"bbox":[112.765791,-24.910129,114.214643,-21.758913]},{"id":65,"name":"20230927 - Carnarvon to Monkey Mia","description":"Carnarvon to Monkey Mia","start":"2023-09-27T05:41:23+00:00","end":"2023-09-29T06:14:22+00:00","duration_hours":48.55,"points":149,"stated_nm":67.5,"computed_nm":67.5,"avg_speed_kn":1.39,"max_speed_kn":13.02,"bbox":[113.541278,-25.791935,113.720286,-24.89923]},{"id":66,"name":"20231006 - Monkey Mia to Abrolhos Islands","description":"Monkey Mia to Abrolhos Islands","start":"2023-10-06T21:57:28+00:00","end":"2023-10-09T16:02:54+00:00","duration_hours":66.09,"points":806,"stated_nm":248.5,"computed_nm":248.5,"avg_speed_kn":3.76,"max_speed_kn":19.51,"bbox":[113.032824,-28.42977,113.8964,-25.494627]},{"id":67,"name":"20231014 - Abrolhos to Geraldton","description":"Abrolhos to Geraldton","start":"2023-10-14T22:05:58+00:00","end":"2023-10-26T06:36:49+00:00","duration_hours":272.51,"points":128,"stated_nm":52.9,"computed_nm":52.9,"avg_speed_kn":0.19,"max_speed_kn":11.73,"bbox":[113.736912,-28.773351,114.611164,-28.415588]},{"id":68,"name":"20231101 - Geraldton to Fremantle","description":"Geraldton to Fremantle","start":"2023-11-01T20:52:52+00:00","end":"2023-11-12T03:37:44+00:00","duration_hours":246.75,"points":820,"stated_nm":263.6,"computed_nm":263.6,"avg_speed_kn":1.07,"max_speed_kn":18.91,"bbox":[114.488383,-32.273954,115.749085,-28.75008]},{"id":69,"name":"20231210 - Fremantle to Busselton","description":"Fremantle to Busselton","start":"2023-12-10T01:23:01+00:00","end":"2023-12-12T07:21:08+00:00","duration_hours":53.97,"points":423,"stated_nm":114.0,"computed_nm":114.0,"avg_speed_kn":2.11,"max_speed_kn":19.83,"bbox":[115.302056,-33.651349,115.726259,-32.138163]},{"id":70,"name":"20240104 - Busselton to Hobart, Tasmania","description":"Busselton to Hobart, Tasmania","start":"2024-01-04T05:22:22+00:00","end":"2024-02-03T05:14:17+00:00","duration_hours":719.87,"points":12761,"stated_nm":2570.7,"computed_nm":2570.7,"avg_speed_kn":3.57,"max_speed_kn":18.87,"bbox":[113.217687,-46.668738,147.538809,-33.520222]},{"id":71,"name":"20240407 - Hobart to Flinders Island","description":"42.8253\u00b0S, 147.3121\u00b0E to 40.2133\u00b0S, 148.2493\u00b0E","start":"2024-04-07T00:59:27+00:00","end":"2024-04-11T04:50:02+00:00","duration_hours":99.84,"points":1066,"stated_nm":266.3,"computed_nm":266.3,"avg_speed_kn":2.67,"max_speed_kn":19.01,"bbox":[147.312149,-43.311964,148.634871,-40.213305]},{"id":72,"name":"20240412 - Flinders Island to Sydney","description":"40.2131\u00b0S, 148.2499\u00b0E to 33.8716\u00b0S, 151.1856\u00b0E","start":"2024-04-12T10:30:03+00:00","end":"2024-05-11T16:58:52+00:00","duration_hours":702.48,"points":1583,"stated_nm":478.7,"computed_nm":478.7,"avg_speed_kn":0.68,"max_speed_kn":19.11,"bbox":[148.249887,-40.254501,151.353957,-33.799807]},{"id":73,"name":"20240513 - Sydney to Nelson Bay","description":"33.8648\u00b0S, 151.1890\u00b0E to 32.7159\u00b0S, 152.1490\u00b0E","start":"2024-05-13T05:37:17+00:00","end":"2024-05-15T17:46:10+00:00","duration_hours":60.15,"points":515,"stated_nm":155.8,"computed_nm":155.8,"avg_speed_kn":2.59,"max_speed_kn":11.78,"bbox":[151.188978,-33.864778,152.885089,-32.702245]},{"id":74,"name":"20240520 - Nelson Bay to Norfolk Island","description":"32.7158\u00b0S, 152.1397\u00b0E to 29.0208\u00b0S, 167.9729\u00b0E","start":"2024-05-20T01:59:19+00:00","end":"2024-06-05T18:26:24+00:00","duration_hours":400.45,"points":4848,"stated_nm":1114.3,"computed_nm":1114.3,"avg_speed_kn":2.78,"max_speed_kn":19.74,"bbox":[152.056396,-32.77409,168.005437,-28.872605]},{"id":75,"name":"20240607 - Norfolk Island to Fiji","description":"29.0105\u00b0S, 167.9692\u00b0E to 17.6453\u00b0S, 177.3940\u00b0E","start":"2024-06-07T04:27:56+00:00","end":"2024-10-18T08:47:46+00:00","duration_hours":3196.33,"points":3844,"stated_nm":1092.1,"computed_nm":1092.1,"avg_speed_kn":0.34,"max_speed_kn":17.47,"bbox":[167.904615,-29.067556,177.443133,-17.582604]},{"id":76,"name":"20241020 - Fiji to Whangarei, New Zealand","description":"17.6392\u00b0S, 177.3938\u00b0E to 35.7404\u00b0S, 174.3387\u00b0E","start":"2024-10-20T19:07:52+00:00","end":"2024-12-03T05:21:42+00:00","duration_hours":1042.23,"points":6984,"stated_nm":1373.1,"computed_nm":1373.1,"avg_speed_kn":1.32,"max_speed_kn":19.36,"bbox":[171.945072,-35.872263,177.393777,-17.630561]},{"id":77,"name":"20250218 - Whangarei to Opua","description":"35.7380\u00b0S, 174.3421\u00b0E to 35.2731\u00b0S, 174.1248\u00b0E","start":"2025-02-18T23:28:30+00:00","end":"2025-02-24T02:31:35+00:00","duration_hours":123.05,"points":488,"stated_nm":89.0,"computed_nm":89.0,"avg_speed_kn":0.72,"max_speed_kn":12.08,"bbox":[174.105851,-35.872166,174.62072,-35.158704]},{"id":78,"name":"20250226 - Opua to Tauranga","description":"35.2730\u00b0S, 174.1247\u00b0E to 37.6373\u00b0S, 176.1781\u00b0E","start":"2025-02-26T19:02:17+00:00","end":"2025-03-22T22:27:09+00:00","duration_hours":579.41,"points":1465,"stated_nm":280.1,"computed_nm":280.1,"avg_speed_kn":0.48,"max_speed_kn":12.92,"bbox":[174.105766,-37.681175,176.179985,-35.166966]},{"id":79,"name":"20250326 - Tauranga to Auckland","description":"37.6371\u00b0S, 176.1713\u00b0E to 36.8362\u00b0S, 174.7450\u00b0E","start":"2025-03-26T17:13:19+00:00","end":"2025-04-02T13:18:23+00:00","duration_hours":164.08,"points":918,"stated_nm":176.4,"computed_nm":176.4,"avg_speed_kn":1.08,"max_speed_kn":19.94,"bbox":[174.744459,-37.637148,176.171273,-36.451098]},{"id":80,"name":"20250418 - Auckland NZ to Rapa Iti","description":"36.8327\u00b0S, 174.7525\u00b0E to 36.8128\u00b0S, 154.3362\u00b0W","start":"2025-04-18T23:36:45+00:00","end":"2025-05-26T20:52:00+00:00","duration_hours":909.25,"points":16142,"stated_nm":2096.7,"computed_nm":2992.0,"avg_speed_kn":3.29,"max_speed_kn":18.35,"bbox":[-179.999392,-41.068675,179.996582,-27.611668]},{"id":81,"name":"20250528 - Rapa Iti to Tahiti","description":"27.6135\u00b0S, 144.3340\u00b0W to 17.5396\u00b0S, 149.5697\u00b0W","start":"2025-05-28T22:56:40+00:00","end":"2025-06-04T23:15:02+00:00","duration_hours":168.31,"points":3732,"stated_nm":707.5,"computed_nm":707.5,"avg_speed_kn":4.2,"max_speed_kn":12.77,"bbox":[-149.693085,-27.616211,-144.275981,-17.507775]},{"id":82,"name":"20250701 - Tahiti to Honolulu, USA","description":"17.5416\u00b0S, 149.5767\u00b0W to 21.2869\u00b0N, 157.8428\u00b0W","start":"2025-07-01T01:23:26+00:00","end":"2025-08-08T05:32:10+00:00","duration_hours":916.15,"points":7700,"stated_nm":2825.0,"computed_nm":2825.0,"avg_speed_kn":3.08,"max_speed_kn":19.09,"bbox":[-157.881551,-17.541579,-146.675572,21.702441]},{"id":83,"name":"20250813 - Honolulu to Hale&apos;iwa","description":"21.2872\u00b0N, 157.8426\u00b0W to 21.5955\u00b0N, 158.1061\u00b0W","start":"2025-08-13T07:28:40+00:00","end":"2025-08-14T06:22:52+00:00","duration_hours":22.9,"points":71,"stated_nm":49.3,"computed_nm":49.3,"avg_speed_kn":2.15,"max_speed_kn":13.16,"bbox":[-158.29752,21.266762,-157.842553,21.607405]},{"id":84,"name":"20250815 - Hale&apos;iwa to Victoria, Canada","description":"21.5942\u00b0N, 158.1062\u00b0W to 48.4533\u00b0N, 123.2948\u00b0W","start":"2025-08-15T06:28:03+00:00","end":"2025-09-30T05:11:13+00:00","duration_hours":1102.72,"points":8587,"stated_nm":3261.9,"computed_nm":3261.9,"avg_speed_kn":2.96,"max_speed_kn":18.94,"bbox":[-158.620334,21.59424,-123.281893,49.055567]}];
+
+// === INLINE WAYPOINTS (FarOtherSide baseline — replaced when a custom GPX is loaded) ===
+let INLINE_WAYPOINTS = [{"lat":-45.725167,"lon":115.492694,"name":"MY ANTIPODE","time":"2023-09-02T00:39:14.000Z","sym":"Symbol-Circle-Orange","type":"WPT","desc":null,"ele":0.0}];
+
+// Snapshots of the originals so "Default" can restore the FarOtherSide data
+const DEFAULT_LEGS = INLINE_LEGS.slice();
+const DEFAULT_WAYPOINTS = INLINE_WAYPOINTS.slice();
+const DEFAULT_SOURCE_KEY = 'farotherside';
+const DEFAULT_SOURCE_NAME = 'FarOtherSide (built-in, 84 legs)';
+const DEFAULT_PROJECT_TITLE = 'FAROTHERSIDE';
+
+// === STATE ===
+let map = null;
+// `config.legs` holds the renderer-facing leg list, derived from INLINE_LEGS
+// + each leg's per-leg settings (duration / camera / overlays / etc),
+// hydrated from localStorage on load.
+let config = { legs: [] };
+let geojsonCache = {};   // legId -> Feature (loaded on demand)
+let currentLegId = null;
+let animFrameId = null;
+let mediaRecorder = null;
+let recordChunks = [];
+// Identifies which dataset is currently loaded (FarOtherSide vs. a user-loaded
+// GPX); used as a namespace for per-leg settings so settings from different
+// source files don't collide.
+let currentSourceKey = DEFAULT_SOURCE_KEY;
+let currentSourceName = DEFAULT_SOURCE_NAME;
+// Multi-leg selection: when the user shift-clicks a range, we synthesize a
+// "combined leg" (id `combined:from-to`) by concatenating each real leg's
+// coords/times. The rest of the pipeline (animate, record, trim, speed)
+// treats it like any other leg via getLegById().
+let selectedRange = null;     // null or { from, to } (numeric ids, sorted)
+let combinedLeg = null;       // synthetic leg object (id, name, metadata)
+let combinedGeojson = null;   // synthetic Feature with concatenated coords/times
+
+// === PER-LEG SETTINGS PERSISTENCE ===
+// Settings keyed by leg id; persisted as a single localStorage blob, but
+// namespaced per source so a custom GPX file's settings don't overwrite
+// the FarOtherSide settings (or vice versa).
+const SETTINGS_KEY_BASE = 'farotherside-per-leg-settings';
+function settingsKey() { return `${SETTINGS_KEY_BASE}::${currentSourceKey}`; }
+const DEFAULT_LEG_SETTINGS = {
+  duration_sec: 20,
+  camera: 'static',
+  overlays: { date: true, distance: true, speed: false },
+};
+
+function loadAllLegSettings() {
+  try { return JSON.parse(localStorage.getItem(settingsKey()) || '{}'); }
+  catch (e) { return {}; }
+}
+function saveAllLegSettings(obj) {
+  try { localStorage.setItem(settingsKey(), JSON.stringify(obj)); } catch(e) {}
+}
+function getLegSettings(id) {
+  const all = loadAllLegSettings();
+  const stored = all[id] || {};
+  // Default duration scales with distance for unconfigured legs
+  const meta = INLINE_LEGS.find(l => l.id === id);
+  const nm = (meta && (meta.stated_nm || meta.computed_nm)) || 50;
+  const suggested = Math.max(12, Math.min(45, Math.round(8 + nm / 80)));
+  return {
+    ...DEFAULT_LEG_SETTINGS,
+    duration_sec: suggested,
+    ...stored,
+    overlays: { ...DEFAULT_LEG_SETTINGS.overlays, ...(stored.overlays || {}) },
+  };
+}
+function setLegSettings(id, patch) {
+  const all = loadAllLegSettings();
+  all[id] = { ...getLegSettings(id), ...patch };
+  saveAllLegSettings(all);
+}
+
+// Build config.legs from INLINE_LEGS + saved settings
+function rebuildConfig() {
+  config.legs = INLINE_LEGS.map(l => {
+    const s = getLegSettings(l.id);
+    return {
+      id: l.id,
+      name: (l.name || '').replace(/^\d{8}\s*-\s*/, '').replace(/&apos;/g, "'"),
+      stated_nm: l.stated_nm,
+      computed_nm: l.computed_nm,
+      start: l.start,
+      end: l.end,
+      duration_sec: s.duration_sec,
+      camera: s.camera,
+      overlays: s.overlays,
+    };
+  });
+}
+
+// === GEOJSON LOADING (fetch then IndexedDB cache) ===
+// IDB v1 had a single "legs" store keyed by numeric leg id (FarOtherSide).
+// IDB v2 adds a "sources" store for persisting a user-loaded GPX bundle so
+// it survives page reloads — single record under the key "active".
+const IDB_NAME = 'farotherside-geojson';
+const IDB_STORE = 'legs';
+const IDB_SOURCES_STORE = 'sources';
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 2);
+    req.onupgradeneeded = (ev) => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
+      if (!db.objectStoreNames.contains(IDB_SOURCES_STORE)) {
+        db.createObjectStore(IDB_SOURCES_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGet(id) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) { return null; }
+}
+async function idbPut(id, value) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(value, id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) { /* swallow */ }
+}
+async function idbCountLegs() {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).count();
+      req.onsuccess = () => resolve(req.result || 0);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) { return 0; }
+}
+
+// Active-source bundle (legs + waypoints + per-leg geojson + metadata).
+// Stored under the single key "active" in the sources store so loading a new
+// GPX file replaces the previous one and the page can restore on reload.
+async function idbSaveActiveSource(bundle) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_SOURCES_STORE, 'readwrite');
+      tx.objectStore(IDB_SOURCES_STORE).put(bundle, 'active');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) { /* swallow */ }
+}
+async function idbLoadActiveSource() {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_SOURCES_STORE, 'readonly');
+      const req = tx.objectStore(IDB_SOURCES_STORE).get('active');
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) { return null; }
+}
+async function idbClearActiveSource() {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_SOURCES_STORE, 'readwrite');
+      tx.objectStore(IDB_SOURCES_STORE).delete('active');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) { /* swallow */ }
+}
+
+// Attempt order: in-memory cache → fetch ./geojson/leg_NN.geojson → IndexedDB
+// The fetch + IDB fallback is only relevant for the built-in FarOtherSide
+// dataset; when a custom GPX is loaded, all per-leg geojson is held in
+// memory (and the active source bundle is persisted under one IDB key).
+async function getGeojson(id) {
+  if (geojsonCache[id]) return geojsonCache[id];
+  if (currentSourceKey !== DEFAULT_SOURCE_KEY) return null;
+  const fname = `geojson/leg_${String(id).padStart(2,'0')}.geojson`;
+  try {
+    const resp = await fetch(fname, { cache: 'force-cache' });
+    if (resp.ok) {
+      const gj = await resp.json();
+      geojsonCache[id] = gj;
+      // Populate IDB in the background so future loads work offline / file://
+      idbPut(id, gj);
+      return gj;
+    }
+  } catch (e) { /* fall through to IDB */ }
+  const cached = await idbGet(id);
+  if (cached) { geojsonCache[id] = cached; return cached; }
+  return null;
+}
+
+async function showCacheFallbackIfEmpty() {
+  // Only relevant for the built-in FarOtherSide dataset; a custom GPX is
+  // entirely in memory so there's nothing to import.
+  if (currentSourceKey !== DEFAULT_SOURCE_KEY) {
+    document.getElementById('cache-fallback').style.display = 'none';
+    setStatus('config-status', '', '#789bb8');
+    return;
+  }
+  // Try fetching one file to see if the server path works
+  let serverWorks = false;
+  try {
+    const r = await fetch('geojson/leg_01.geojson', { method: 'HEAD' });
+    serverWorks = r.ok;
+  } catch (e) { serverWorks = false; }
+  const cnt = await idbCountLegs();
+  const showFallback = !serverWorks && cnt < 84;
+  document.getElementById('cache-fallback').style.display =
+    showFallback ? 'block' : 'none';
+  if (!serverWorks && cnt > 0) {
+    setStatus('config-status', `Using cached geojson (${cnt}/84 cached).`, '#789bb8');
+  } else if (serverWorks) {
+    setStatus('config-status', `Loading geojson on demand from ./geojson/.`, '#789bb8');
+  } else {
+    setStatus('config-status',
+      `GeoJSON not found on disk or in cache. Import the geojson folder once.`,
+      '#d4a04a');
+  }
+}
+
+async function importGeojsonFiles(files) {
+  setStatus('config-status', 'Caching geojson files…', '#4a9eff');
+  let n = 0, skipped = 0;
+  for (const f of files) {
+    const m = f.name.match(/leg_(\d+)\.geojson/i);
+    if (!m) { skipped++; continue; }
+    const id = +m[1];
+    try {
+      const gj = JSON.parse(await f.text());
+      geojsonCache[id] = gj;
+      await idbPut(id, gj);
+      n++;
+    } catch (e) { skipped++; console.error('Failed', f.name, e); }
+  }
+  const total = await idbCountLegs();
+  setStatus('config-status',
+    `Cached ${n} new file${n===1?'':'s'} (${total}/84 total${skipped?`, ${skipped} skipped`:''}).`,
+    '#4a9eff');
+  document.getElementById('cache-fallback').style.display =
+    total >= 84 ? 'none' : 'block';
+  if (currentLegId) selectLeg(currentLegId);
+}
+
+// === GPX PARSER (in-browser, no dependencies) ===
+// Parses a GPX file's text and returns { legs, waypoints, geojsonById, title }.
+// Each <trk> becomes a leg; all <trkseg> points are concatenated. Tracks
+// denser than MAX_PTS_PER_LEG get evenly downsampled so the animation stays
+// responsive (same threshold as the original parse_gpx.py script).
+const MAX_PTS_PER_LEG = 3000;
+
+function parseGPXText(text, filename) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, 'application/xml');
+  const err = doc.querySelector('parsererror');
+  if (err) {
+    throw new Error('Could not parse GPX: ' + err.textContent.slice(0, 200));
+  }
+  if (!doc.documentElement || doc.documentElement.nodeName.toLowerCase() !== 'gpx') {
+    throw new Error('File does not appear to be GPX (root element is not <gpx>).');
+  }
+
+  const fileTitle = doc.querySelector('metadata > name')?.textContent?.trim()
+    || filename.replace(/\.gpx$/i, '');
+
+  // Waypoints
+  const waypoints = [];
+  doc.querySelectorAll('wpt').forEach(w => {
+    const lat = parseFloat(w.getAttribute('lat'));
+    const lon = parseFloat(w.getAttribute('lon'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const childText = (tag) => {
+      const el = Array.from(w.children).find(c => c.tagName.toLowerCase() === tag);
+      return el ? el.textContent : null;
+    };
+    waypoints.push({
+      lat, lon,
+      name: childText('name') || '',
+      sym:  childText('sym')  || null,
+      time: childText('time') || null,
+      desc: childText('desc') || null,
+      ele:  parseFloat(childText('ele') || '0') || 0,
+      type: childText('type') || 'WPT',
+    });
+  });
+
+  // Tracks → legs
+  const legs = [];
+  const geojsonById = {};
+  doc.querySelectorAll('trk').forEach((trk, i) => {
+    const id = i + 1;
+    const nameEl = Array.from(trk.children).find(c => c.tagName.toLowerCase() === 'name');
+    const descEl = Array.from(trk.children).find(c => c.tagName.toLowerCase() === 'desc');
+    const name = (nameEl?.textContent || `Track ${id}`).trim();
+    const desc = descEl?.textContent || null;
+
+    // Collect all points across all <trkseg> children
+    const allCoords = [];
+    const allTimes = [];
+    const allEles = [];
+    trk.querySelectorAll('trkseg > trkpt').forEach(p => {
+      const lat = parseFloat(p.getAttribute('lat'));
+      const lon = parseFloat(p.getAttribute('lon'));
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      allCoords.push([lon, lat]);
+      const tEl = Array.from(p.children).find(c => c.tagName.toLowerCase() === 'time');
+      const eEl = Array.from(p.children).find(c => c.tagName.toLowerCase() === 'ele');
+      allTimes.push(tEl ? tEl.textContent : null);
+      allEles.push(eEl ? (parseFloat(eEl.textContent) || 0) : 0);
+    });
+
+    if (allCoords.length < 2) return; // Skip empty/degenerate tracks
+
+    const { coords, times, eles } = downsampleTrack(allCoords, allTimes, allEles, MAX_PTS_PER_LEG);
+
+    // Metadata: distance, duration, bbox, speed
+    let dist = 0;
+    for (let k = 1; k < coords.length; k++) dist += haversineNm(coords[k-1], coords[k]);
+    const firstT = times.find(t => t) || null;
+    let lastT = null;
+    for (let k = times.length - 1; k >= 0; k--) { if (times[k]) { lastT = times[k]; break; } }
+    const durHours = firstT && lastT
+      ? Math.max(0, (new Date(lastT) - new Date(firstT)) / 3600000)
+      : 0;
+    const avgKn = durHours > 0 ? dist / durHours : 0;
+
+    // Max segment speed (kn), bounded to avoid garbage spikes
+    let maxKn = 0;
+    for (let k = 1; k < coords.length; k++) {
+      if (!times[k] || !times[k-1]) continue;
+      const dh = (new Date(times[k]) - new Date(times[k-1])) / 3600000;
+      if (dh > 0 && dh < 1) {
+        const v = haversineNm(coords[k-1], coords[k]) / dh;
+        if (v > maxKn && v < 50) maxKn = v;
+      }
+    }
+
+    const lons = coords.map(c => c[0]);
+    const lats = coords.map(c => c[1]);
+    const bbox = [Math.min(...lons), Math.min(...lats),
+                  Math.max(...lons), Math.max(...lats)];
+
+    legs.push({
+      id, name, description: desc,
+      start: firstT, end: lastT,
+      duration_hours: +durHours.toFixed(2),
+      points: coords.length,
+      stated_nm: +dist.toFixed(1),
+      computed_nm: +dist.toFixed(1),
+      avg_speed_kn: +avgKn.toFixed(2),
+      max_speed_kn: +maxKn.toFixed(2),
+      bbox,
+    });
+
+    geojsonById[id] = {
+      type: 'Feature',
+      properties: { id, name },
+      geometry: { type: 'LineString', coordinates: coords },
+      times,
+      elevations: eles,
+    };
+  });
+
+  return { legs, waypoints, geojsonById, title: fileTitle };
+}
+
+// Evenly sample n points across an array of [coords/times/eles], always
+// preserving the first and last points so the start/end of the track are exact.
+function downsampleTrack(coords, times, eles, maxPts) {
+  const n = coords.length;
+  if (n <= maxPts) return { coords, times, eles };
+  const out = { coords: [], times: [], eles: [] };
+  const step = (n - 1) / (maxPts - 1);
+  for (let i = 0; i < maxPts; i++) {
+    const idx = Math.round(i * step);
+    out.coords.push(coords[idx]);
+    out.times.push(times[idx] || null);
+    out.eles.push(eles[idx] || 0);
+  }
+  return out;
+}
+
+// === SOURCE SWITCHING ===
+// Apply a parsed/loaded source bundle to the running app: replace the leg
+// list + waypoints, repopulate the in-memory geojson cache, and rebuild the
+// UI. Used by both "Load GPX" and "Restore on boot from IDB" paths.
+function applySourceBundle({ sourceKey, sourceName, legs, waypoints, geojsonById, title }) {
+  INLINE_LEGS = legs;
+  INLINE_WAYPOINTS = waypoints || [];
+  geojsonCache = { ...(geojsonById || {}) };
+  currentLegId = null;
+  currentSourceKey = sourceKey;
+  currentSourceName = sourceName;
+  // Range selection belongs to the previous source — drop it
+  clearRangeState();
+
+  // Project title: prefer the explicit one, else file/source name (uppercased)
+  const titleEl = document.getElementById('project-title');
+  if (titleEl) {
+    titleEl.value = (title || sourceName || '').toUpperCase().slice(0, 60);
+    applyProjectTitleToOverlay();
+  }
+
+  document.getElementById('source-name').textContent = sourceName;
+  rebuildConfig();
+  renderLegList();
+  if (map && map.isStyleLoaded()) updateWaypointLayer();
+  // Hide / show cache-fallback as appropriate, and clear any previous status
+  showCacheFallbackIfEmpty();
+
+  // Disable preview/record buttons until a leg is selected
+  ['preview-btn','record-btn','frame-btn'].forEach(b => {
+    const el = document.getElementById(b);
+    if (el) { el.disabled = true; el.title = 'Pick a leg from the list first.'; }
+  });
+  // Reset the on-screen overlay
+  document.getElementById('ov-date').textContent = '—';
+  document.getElementById('ov-distance').textContent = '0 nm';
+  document.getElementById('ov-speed').textContent = '0.0 kn';
+  document.getElementById('ov-title').textContent = '';
+}
+
+// Read a GPX file the user picked, parse it, swap in the result, and
+// persist it to IndexedDB so a page reload restores it without re-pick.
+async function loadGPXFile(file) {
+  setStatus('gpx-status', `Parsing ${file.name}…`, '#4a9eff');
+  document.getElementById('source-name').textContent = `Parsing ${file.name}…`;
+  try {
+    const text = await file.text();
+    const parsed = parseGPXText(text, file.name);
+    if (parsed.legs.length === 0) {
+      setStatus('gpx-status',
+        'No usable tracks found in this GPX (need at least one <trk> with points).',
+        '#d04040');
+      document.getElementById('source-name').textContent = currentSourceName;
+      return;
+    }
+    const sourceKey = `gpx::${file.name}::${file.size}`;
+    const sourceName = `${file.name} (${parsed.legs.length} track${parsed.legs.length===1?'':'s'}, ${parsed.waypoints.length} waypoint${parsed.waypoints.length===1?'':'s'})`;
+
+    // Persist before swapping, so a mid-swap crash still recovers cleanly
+    await idbSaveActiveSource({
+      sourceKey, sourceName,
+      legs: parsed.legs,
+      waypoints: parsed.waypoints,
+      geojsonById: parsed.geojsonById,
+      title: parsed.title,
+    });
+
+    applySourceBundle({
+      sourceKey, sourceName,
+      legs: parsed.legs,
+      waypoints: parsed.waypoints,
+      geojsonById: parsed.geojsonById,
+      title: parsed.title,
+    });
+
+    const totalNm = parsed.legs.reduce((s,l) => s + (l.computed_nm || 0), 0);
+    setStatus('gpx-status',
+      `Loaded ${parsed.legs.length} track${parsed.legs.length===1?'':'s'} (${totalNm.toLocaleString(undefined,{maximumFractionDigits:0})} nm) from ${file.name}.`,
+      '#4a9eff');
+
+    // Fit the map to the new data's overall bbox so the user sees something
+    if (map && parsed.legs.length > 0) {
+      const bboxes = parsed.legs.map(l => l.bbox);
+      const minLon = Math.min(...bboxes.map(b => b[0]));
+      const minLat = Math.min(...bboxes.map(b => b[1]));
+      const maxLon = Math.max(...bboxes.map(b => b[2]));
+      const maxLat = Math.max(...bboxes.map(b => b[3]));
+      try {
+        map.fitBounds([[minLon, minLat], [maxLon, maxLat]],
+          { padding: 80, duration: 800 });
+      } catch (e) { /* bbox might span antimeridian; ignore */ }
+    }
+  } catch (e) {
+    console.error(e);
+    setStatus('gpx-status', 'Error: ' + e.message, '#d04040');
+    document.getElementById('source-name').textContent = currentSourceName;
+  }
+}
+
+// Restore the default FarOtherSide dataset (the originals we snapshotted at
+// page load before any swapping happened).
+async function resetToDefaultSource() {
+  await idbClearActiveSource();
+  applySourceBundle({
+    sourceKey: DEFAULT_SOURCE_KEY,
+    sourceName: DEFAULT_SOURCE_NAME,
+    legs: DEFAULT_LEGS.slice(),
+    waypoints: DEFAULT_WAYPOINTS.slice(),
+    geojsonById: {},  // re-fetched on demand from ./geojson/
+    title: DEFAULT_PROJECT_TITLE,
+  });
+  setStatus('gpx-status', 'Restored FarOtherSide voyage data.', '#789bb8');
+}
+
+// Write the user's "Title" input value to the on-screen overlay caption
+// (the recorded-video version reads it again at draw time).
+function applyProjectTitleToOverlay() {
+  const v = (document.getElementById('project-title').value || '').toUpperCase();
+  const el = document.getElementById('ov-leg');
+  if (el) el.textContent = v || ' ';
+  try { localStorage.setItem('project-title', document.getElementById('project-title').value); } catch(e) {}
+}
+
+// === MULTI-LEG (RANGE) SELECTION ===
+// All four helpers operate via the synthetic `combined:from-to` leg id. The
+// rest of the renderer is unchanged — it just sees a longer track + bigger nm.
+
+function combinedLegId(from, to) { return `combined:${from}-${to}`; }
+
+// File tag for output filenames. Numeric leg ids → "leg_NN"; combined ids
+// (`combined:F-T`) → "legs_F-T". Colons get scrubbed since some filesystems
+// dislike them.
+function legFileTag(legId) {
+  if (typeof legId === 'string' && legId.startsWith('combined:')) {
+    return 'legs_' + legId.slice('combined:'.length);
+  }
+  return 'leg_' + String(legId).padStart(2, '0');
+}
+
+// Resolve a leg id to its config object, transparently returning the synthetic
+// combined leg if one is active and matches.
+function getLegById(id) {
+  if (combinedLeg && combinedLeg.id === id) return combinedLeg;
+  return config.legs.find(l => l.id === id);
+}
+
+// Build (or rebuild) the combined leg from the current selectedRange, fetching
+// each constituent leg's geojson and concatenating coordinates / times /
+// elevations in id order. Gaps between legs are kept as-is — for FarOtherSide
+// the leg endpoints are usually the same port, so the line stays continuous;
+// for arbitrary data, any geographic jump shows as a single segment, and the
+// existing speed-clamp ignores any unrealistically long time delta.
+async function buildCombinedLeg(fromId, toId) {
+  const legs = config.legs
+    .filter(l => l.id >= fromId && l.id <= toId)
+    .sort((a, b) => a.id - b.id);
+  if (legs.length < 2) return null;
+
+  // Fetch geojson for each constituent leg
+  const gjs = [];
+  for (const l of legs) {
+    const g = await getGeojson(l.id);
+    if (!g) {
+      setStatus('render-status',
+        `Track data missing for leg ${l.id} — can't build the combined range.`,
+        '#d04040');
+      return null;
+    }
+    gjs.push(g);
+  }
+
+  // Concatenate
+  const coords = [];
+  const times = [];
+  const eles = [];
+  for (const g of gjs) {
+    const c = g.geometry.coordinates;
+    const t = g.times || [];
+    const e = g.elevations || [];
+    for (let i = 0; i < c.length; i++) {
+      coords.push(c[i]);
+      times.push(t[i] || null);
+      eles.push(e[i] != null ? e[i] : 0);
+    }
+  }
+
+  const id = combinedLegId(fromId, toId);
+  const totalNm = legs.reduce((s, l) => s + (l.computed_nm || 0), 0);
+  const firstName = (legs[0].name || `Leg ${fromId}`).split(/[—-]/)[0].trim();
+  const lastName  = (legs[legs.length-1].name || `Leg ${toId}`).split(/[—-]/)[0].trim();
+  const stored = (loadAllLegSettings()[id]) || {};
+  const suggested = Math.max(12, Math.min(60, Math.round(8 + totalNm / 80)));
+
+  combinedLeg = {
+    id,
+    name: `${firstName} → ${lastName} (legs ${fromId}–${toId})`,
+    stated_nm: +totalNm.toFixed(1),
+    computed_nm: +totalNm.toFixed(1),
+    start: legs[0].start,
+    end: legs[legs.length-1].end,
+    duration_sec: stored.duration_sec || suggested,
+    camera: stored.camera || 'static',
+    overlays: { ...DEFAULT_LEG_SETTINGS.overlays, ...(stored.overlays || {}) },
+    range: [fromId, toId],
+    legCount: legs.length,
+  };
+  combinedGeojson = {
+    type: 'Feature',
+    properties: { id, name: combinedLeg.name },
+    geometry: { type: 'LineString', coordinates: coords },
+    times,
+    elevations: eles,
+  };
+  geojsonCache[id] = combinedGeojson;
+  return combinedLeg;
+}
+
+// Update the on-screen combo banner (the panel above the leg list) to
+// reflect selectedRange + combinedLeg metadata.
+function updateComboBanner() {
+  const banner = document.getElementById('combo-banner');
+  if (!banner) return;
+  if (!selectedRange || !combinedLeg) {
+    banner.style.display = 'none';
+    return;
+  }
+  banner.style.display = 'block';
+  document.getElementById('combo-banner-text').textContent =
+    `Combined: legs ${selectedRange.from}–${selectedRange.to}`;
+  document.getElementById('combo-banner-meta').textContent =
+    `${combinedLeg.legCount} legs · ${combinedLeg.computed_nm.toLocaleString(undefined, {maximumFractionDigits:0})} nm · ${combinedLeg.duration_sec}s · ${combinedLeg.camera}`;
+}
+
+// Drop any range selection and free the synthetic leg's geojson.
+function clearRangeState() {
+  if (combinedLeg) delete geojsonCache[combinedLeg.id];
+  selectedRange = null;
+  combinedLeg = null;
+  combinedGeojson = null;
+  document.getElementById('combo-banner').style.display = 'none';
+}
+
+// Compute the new range from a click and either build a combined leg
+// (range of 2+) or fall through to the normal single-leg selection.
+async function handleLegClick(legId, opts) {
+  const shift = opts && opts.shiftKey;
+  if (shift) {
+    // The shift anchor is whichever leg is currently focused — either a
+    // single selection or one end of an active range.
+    let anchor;
+    if (selectedRange) {
+      // Extend the range: keep the anchor opposite to the clicked end.
+      const { from, to } = selectedRange;
+      anchor = (legId >= to) ? from : (legId <= from ? to : from);
+    } else if (typeof currentLegId === 'number') {
+      anchor = currentLegId;
+    } else {
+      anchor = legId;  // no anchor → behaves like a single click
+    }
+    const fromId = Math.min(anchor, legId);
+    const toId = Math.max(anchor, legId);
+    if (fromId === toId) {
+      clearRangeState();
+      await selectLeg(legId);
+      return;
+    }
+    setStatus('render-status', `Combining legs ${fromId}–${toId}…`, '#4a9eff');
+    selectedRange = { from: fromId, to: toId };
+    const cl = await buildCombinedLeg(fromId, toId);
+    if (!cl) {
+      clearRangeState();
+      renderLegList();
+      return;
+    }
+    renderLegList();             // refresh in-range highlights
+    await selectLeg(cl.id);      // loads the synthetic leg into the pipeline
+    updateComboBanner();
+    return;
+  }
+  // Plain click → drop any range, select single leg
+  clearRangeState();
+  await selectLeg(legId);
+  renderLegList();
+}
+
+// === MAPBOX SETUP ===
+function initMap() {
+  const tok = document.getElementById('token').value.trim();
+  if (!tok || !tok.startsWith('pk.')) {
+    document.getElementById('token-status').textContent =
+      'Need a valid public token (pk.…) — get one at mapbox.com/account';
+    document.getElementById('token-status').style.color = '#d04040';
+    return false;
+  }
+  mapboxgl.accessToken = tok;
+  document.getElementById('token-status').textContent = 'Token set.';
+  document.getElementById('token-status').style.color = '#4a9eff';
+  try { localStorage.setItem('mapbox-token', tok); } catch(e){}
+
+  if (map) return true;
+  const raw = document.getElementById('style-input').value;
+  const { style: initialStyle, lightPreset: initialLight } = parseBasemapValue(raw);
+  map = new mapboxgl.Map({
+    container: 'map',
+    style: initialStyle,
+    center: [0, 0],
+    zoom: 1.5,
+    projection: 'mercator',
+    preserveDrawingBuffer: true,   // needed for canvas capture
+  });
+  map.on('load', () => {
+    if (initialLight) {
+      try { map.setConfigProperty('basemap', 'lightPreset', initialLight); }
+      catch (e) { console.warn('lightPreset failed:', e); }
+    }
+    addTrackLayers();
+    updateWaypointLayer();
+    document.getElementById('render-status').textContent = 'Map ready.';
+  });
+  return true;
+}
+
+// Add the track + boat layers; called both on initial load and after style swap.
+// Reads current color/weight from the UI so updates take effect.
+function addTrackLayers() {
+  const color = document.getElementById('color-input').value || '#ffd166';
+  const weight = +document.getElementById('line-weight').value || 2.5;
+
+  // Preserve any in-flight track/boat data if we're re-adding after a style swap
+  const trackData = (map.getSource('track') && map.getSource('track')._data)
+    || { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } };
+  const boatData = (map.getSource('boat') && map.getSource('boat')._data)
+    || { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] } };
+
+  if (!map.getSource('track')) {
+    map.addSource('track', { type: 'geojson', data: trackData });
+  }
+  if (!map.getLayer('track-glow')) {
+    map.addLayer({
+      id: 'track-glow', type: 'line', source: 'track',
+      paint: { 'line-color': color, 'line-width': weight * 2.4,
+        'line-opacity': 0.25, 'line-blur': 4 }
+    });
+  }
+  if (!map.getLayer('track-line')) {
+    map.addLayer({
+      id: 'track-line', type: 'line', source: 'track',
+      paint: { 'line-color': color, 'line-width': weight }
+    });
+  }
+  if (!map.getSource('boat')) {
+    map.addSource('boat', { type: 'geojson', data: boatData });
+  }
+  if (!map.getLayer('boat-halo')) {
+    map.addLayer({
+      id: 'boat-halo', type: 'circle', source: 'boat',
+      paint: { 'circle-radius': 12, 'circle-color': color, 'circle-opacity': 0.25 }
+    });
+  }
+  if (!map.getLayer('boat-dot')) {
+    map.addLayer({
+      id: 'boat-dot', type: 'circle', source: 'boat',
+      paint: { 'circle-radius': 5, 'circle-color': '#ffffff',
+        'circle-stroke-color': color, 'circle-stroke-width': 2 }
+    });
+  }
+}
+
+// Live-update the track styling (no need to remove/re-add layers)
+function applyTrackStyle() {
+  if (!map || !map.isStyleLoaded()) return;
+  const color = document.getElementById('color-input').value || '#ffd166';
+  const weight = +document.getElementById('line-weight').value || 2.5;
+  document.getElementById('line-weight-val').textContent = weight.toFixed(1);
+  try {
+    map.setPaintProperty('track-line', 'line-color', color);
+    map.setPaintProperty('track-line', 'line-width', weight);
+    map.setPaintProperty('track-glow', 'line-color', color);
+    map.setPaintProperty('track-glow', 'line-width', weight * 2.4);
+    map.setPaintProperty('boat-halo', 'circle-color', color);
+    map.setPaintProperty('boat-dot', 'circle-stroke-color', color);
+  } catch (e) { /* layers may not exist yet during a style swap */ }
+  try { localStorage.setItem('track-color', color); } catch(e) {}
+  try { localStorage.setItem('line-weight', String(weight)); } catch(e) {}
+}
+
+// === WAYPOINTS ===
+const WPT_IMAGE_ID = 'wpt-icon-img';
+const WPT_ICON_PX = 64;  // Internal canvas size; Mapbox scales via icon-size
+
+// Read current waypoint settings from the UI
+function getWaypointSettings() {
+  return {
+    show: document.getElementById('wpt-show').checked,
+    label: document.getElementById('wpt-label').checked,
+    shape: document.getElementById('wpt-icon').value,
+    color: document.getElementById('wpt-color').value || '#ff4f00',
+    size: +document.getElementById('wpt-size').value || 14,
+  };
+}
+
+// Draw a waypoint icon onto a canvas at the given size with given shape + color
+function drawWaypointIcon(canvas, shape, color, size) {
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  const cx = size / 2, cy = size / 2;
+  const r = size * 0.38;
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.lineWidth = Math.max(1, size * 0.06);
+  ctx.shadowColor = 'rgba(0,0,0,0.4)';
+  ctx.shadowBlur = size * 0.06;
+  ctx.shadowOffsetY = size * 0.03;
+
+  switch (shape) {
+    case 'circle':
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      break;
+    case 'square':
+      ctx.beginPath();
+      ctx.rect(cx - r, cy - r, r * 2, r * 2);
+      ctx.fill(); ctx.stroke();
+      break;
+    case 'diamond':
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r, cy);
+      ctx.lineTo(cx, cy + r);
+      ctx.lineTo(cx - r, cy);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      break;
+    case 'triangle':
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r * 0.866, cy + r * 0.5);
+      ctx.lineTo(cx - r * 0.866, cy + r * 0.5);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      break;
+    case 'star': {
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const ang = -Math.PI / 2 + i * Math.PI / 5;
+        const rr = i % 2 === 0 ? r : r * 0.42;
+        const px = cx + Math.cos(ang) * rr;
+        const py = cy + Math.sin(ang) * rr;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      break;
+    }
+    case 'cross': {
+      const t = r * 0.32;
+      ctx.beginPath();
+      ctx.moveTo(cx - t, cy - r); ctx.lineTo(cx + t, cy - r);
+      ctx.lineTo(cx + t, cy - t); ctx.lineTo(cx + r, cy - t);
+      ctx.lineTo(cx + r, cy + t); ctx.lineTo(cx + t, cy + t);
+      ctx.lineTo(cx + t, cy + r); ctx.lineTo(cx - t, cy + r);
+      ctx.lineTo(cx - t, cy + t); ctx.lineTo(cx - r, cy + t);
+      ctx.lineTo(cx - r, cy - t); ctx.lineTo(cx - t, cy - t);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      break;
+    }
+    case 'pin': {
+      // Teardrop: big circle up top, point at the bottom
+      const tipY = cy + r * 1.05;
+      const headY = cy - r * 0.15;
+      const headR = r * 0.78;
+      ctx.beginPath();
+      // Start at left tangent angle of the head circle
+      const tan = Math.PI * 0.75;
+      ctx.arc(cx, headY, headR, Math.PI - tan, tan, false);
+      ctx.lineTo(cx, tipY);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      // Inner white dot for legibility
+      ctx.shadowColor = 'transparent';
+      ctx.beginPath();
+      ctx.arc(cx, headY, headR * 0.42, 0, Math.PI * 2);
+      ctx.fillStyle = 'white';
+      ctx.fill();
+      break;
+    }
+    case 'anchor': {
+      ctx.shadowColor = 'transparent';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1.5, size * 0.09);
+      const top = cy - r * 0.9;
+      const bot = cy + r * 0.7;
+      const cross = cy - r * 0.35;
+      // Ring at top
+      ctx.beginPath();
+      ctx.arc(cx, top + r * 0.18, r * 0.18, 0, Math.PI * 2);
+      ctx.stroke();
+      // Vertical shaft
+      ctx.beginPath();
+      ctx.moveTo(cx, top + r * 0.36);
+      ctx.lineTo(cx, bot);
+      ctx.stroke();
+      // Crossbar
+      ctx.beginPath();
+      ctx.moveTo(cx - r * 0.55, cross);
+      ctx.lineTo(cx + r * 0.55, cross);
+      ctx.stroke();
+      // Bottom arc (flukes)
+      ctx.beginPath();
+      ctx.arc(cx, bot - r * 0.15, r * 0.72,
+              Math.PI * 0.12, Math.PI - Math.PI * 0.12, false);
+      ctx.stroke();
+      // Small tick at very bottom center
+      ctx.beginPath();
+      ctx.moveTo(cx, bot - r * 0.45);
+      ctx.lineTo(cx, bot + r * 0.05);
+      ctx.stroke();
+      break;
+    }
+  }
+}
+
+// (Re)register the waypoint icon image with Mapbox, then ensure the layer
+// exists and reflects the latest waypoint settings.
+function updateWaypointLayer() {
+  if (!map || !map.isStyleLoaded()) return;
+  const s = getWaypointSettings();
+  // Build the icon image at fixed canvas size (Mapbox scales via icon-size)
+  const c = document.createElement('canvas');
+  drawWaypointIcon(c, s.shape, s.color, WPT_ICON_PX);
+  const ctx = c.getContext('2d');
+  const imgData = ctx.getImageData(0, 0, WPT_ICON_PX, WPT_ICON_PX);
+  if (map.hasImage(WPT_IMAGE_ID)) map.removeImage(WPT_IMAGE_ID);
+  map.addImage(WPT_IMAGE_ID, imgData, { pixelRatio: 2 });
+
+  // Ensure source
+  const data = {
+    type: 'FeatureCollection',
+    features: INLINE_WAYPOINTS.map(w => ({
+      type: 'Feature',
+      properties: { name: w.name, sym: w.sym },
+      geometry: { type: 'Point', coordinates: [w.lon, w.lat] },
+    })),
+  };
+  if (!map.getSource('waypoints')) {
+    map.addSource('waypoints', { type: 'geojson', data });
+  } else {
+    map.getSource('waypoints').setData(data);
+  }
+
+  // Symbol layer (icon)
+  if (!map.getLayer('waypoint-icon')) {
+    map.addLayer({
+      id: 'waypoint-icon', type: 'symbol', source: 'waypoints',
+      layout: {
+        'icon-image': WPT_IMAGE_ID,
+        // icon-size relative to the canvas size — s.size is the rendered pixel
+        // size on screen at 1x; divide by canvas size to get the right scale.
+        'icon-size': s.size / WPT_ICON_PX,
+        'icon-allow-overlap': true,
+        'icon-anchor': s.shape === 'pin' ? 'bottom' : 'center',
+        'symbol-z-elevate': true,
+      },
+    });
+  } else {
+    map.setLayoutProperty('waypoint-icon', 'icon-size', s.size / WPT_ICON_PX);
+    map.setLayoutProperty('waypoint-icon', 'icon-anchor',
+      s.shape === 'pin' ? 'bottom' : 'center');
+  }
+
+  // Label layer
+  if (!map.getLayer('waypoint-label')) {
+    map.addLayer({
+      id: 'waypoint-label', type: 'symbol', source: 'waypoints',
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+        'text-size': 13,
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 2,
+      },
+    });
+  }
+
+  // Visibility toggles
+  map.setLayoutProperty('waypoint-icon', 'visibility', s.show ? 'visible' : 'none');
+  map.setLayoutProperty('waypoint-label', 'visibility',
+    (s.show && s.label) ? 'visible' : 'none');
+
+  // Update the count badge in the sidebar
+  const badge = document.getElementById('wpt-count');
+  if (badge) badge.textContent = `(${INLINE_WAYPOINTS.length})`;
+
+  // Persist settings
+  try {
+    localStorage.setItem('wpt-settings', JSON.stringify(s));
+  } catch (e) {}
+}
+
+// Parse a basemap value of the form "<style-url>|<lightPreset>" — the second
+// part (if present) applies to Mapbox Standard styles via setConfigProperty.
+function parseBasemapValue(v) {
+  const [style, lightPreset] = v.split('|');
+  return { style, lightPreset: lightPreset || null };
+}
+
+// Change the basemap. Track/boat layers are reattached after the new style loads.
+function changeBasemap() {
+  if (!map) return;
+  const raw = document.getElementById('style-input').value;
+  const { style, lightPreset } = parseBasemapValue(raw);
+  setStatus('render-status', 'Switching basemap…');
+  map.setStyle(style);
+  map.once('style.load', () => {
+    // For Mapbox Standard / Standard Satellite, set the lighting preset
+    if (lightPreset) {
+      try { map.setConfigProperty('basemap', 'lightPreset', lightPreset); }
+      catch (e) { console.warn('lightPreset failed:', e); }
+    }
+    addTrackLayers();
+    applyTrackStyle();
+    updateWaypointLayer();
+    // If a leg is currently selected, redraw its track in the new style
+    if (currentLegId && geojsonCache[currentLegId]) {
+      const gj = geojsonCache[currentLegId];
+      map.getSource('track').setData({
+        type: 'Feature', geometry: { type: 'LineString', coordinates: gj.geometry.coordinates }
+      });
+      map.getSource('boat').setData({
+        type: 'Feature', geometry: { type: 'Point',
+          coordinates: gj.geometry.coordinates[gj.geometry.coordinates.length - 1] }
+      });
+    }
+    setStatus('render-status', 'Basemap updated.');
+  });
+  try { localStorage.setItem('basemap', raw); } catch(e) {}
+}
+
+// === UI HELPERS ===
+function setStatus(id, msg, color) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.color = color || '#789bb8';
+}
+
+function renderLegList() {
+  const list = document.getElementById('leg-list');
+  const q = (document.getElementById('leg-search').value || '').toLowerCase().trim();
+  list.innerHTML = '';
+  let shown = 0;
+  config.legs.forEach(l => {
+    if (q && !l.name.toLowerCase().includes(q)) return;
+    const div = document.createElement('div');
+    const inRange = selectedRange &&
+      l.id >= selectedRange.from && l.id <= selectedRange.to;
+    div.className = 'leg-item'
+      + (l.id === currentLegId ? ' active' : '')
+      + (inRange ? ' in-range' : '');
+    div.dataset.id = String(l.id);
+    const year = (l.start || '').slice(0, 4);
+    div.innerHTML = `<div>${l.id}. ${l.name}</div>
+      <div class="meta">${l.stated_nm ? l.stated_nm.toLocaleString() + ' nm · ' : ''}${year} · ${l.duration_sec}s · ${l.camera}</div>`;
+    // mousedown-without-preventDefault keeps Shift's native focus selection
+    // from highlighting text in the panel during range-clicking.
+    div.addEventListener('mousedown', e => {
+      if (e.shiftKey) e.preventDefault();
+    });
+    div.onclick = (e) => handleLegClick(l.id, { shiftKey: e.shiftKey });
+    list.appendChild(div);
+    shown++;
+  });
+  if (shown === 0) {
+    list.innerHTML = '<div class="empty">No legs match.</div>';
+  }
+}
+
+async function selectLeg(id) {
+  currentLegId = id;
+  document.querySelectorAll('.leg-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.id === String(id)));
+  const leg = getLegById(id);
+  if (!leg) {
+    setStatus('render-status', `Leg ${id} not found.`, '#d04040');
+    return;
+  }
+
+  // Hydrate controls from saved per-leg settings
+  document.getElementById('dur-input').value = leg.duration_sec;
+  document.getElementById('cam-input').value = leg.camera;
+  document.getElementById('ov-date-tog').checked = leg.overlays.date;
+  document.getElementById('ov-dist-tog').checked = leg.overlays.distance;
+  document.getElementById('ov-speed-tog').checked = leg.overlays.speed;
+  document.getElementById('ov-title').textContent = leg.name.toUpperCase();
+  // Reset trim per-leg (each leg starts at full range)
+  document.getElementById('trim-start').value = 0;
+  document.getElementById('trim-end').value = 100;
+  document.getElementById('trim-start-val').textContent = '0.0%';
+  document.getElementById('trim-end-val').textContent = '100.0%';
+  // Show/hide the follow-zoom row based on camera mode
+  updateFollowZoomVisibility();
+
+  if (!map) {
+    setStatus('render-status', 'Initialize map first (token).', '#d04040');
+    return;
+  }
+
+  // Load geojson on demand (fetch → IDB → null)
+  setStatus('render-status', 'Loading track…');
+  const gj = await getGeojson(id);
+  if (!gj) {
+    setStatus('render-status',
+      'GeoJSON not available. Use "Import geojson folder" below the leg list.',
+      '#d04040');
+    document.getElementById('cache-fallback').style.display = 'block';
+    return;
+  }
+
+  // Fit bounds (use the trimmed coords if a trim is active; on first selection
+  // these are the full coords because we just reset the trim above)
+  const previewLeg = readLegFromUI(leg);
+  const trimmed = trimGeojson(gj, previewLeg.trimStart, previewLeg.trimEnd);
+  const coords = trimmed.coords;
+  const lons = coords.map(c => c[0]), lats = coords.map(c => c[1]);
+  const bounds = [[Math.min(...lons), Math.min(...lats)],
+                  [Math.max(...lons), Math.max(...lats)]];
+  map.fitBounds(bounds, { padding: 80, duration: 800 });
+
+  // Reset visuals
+  map.getSource('track').setData({
+    type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+  map.getSource('boat').setData({
+    type: 'Feature', geometry: { type: 'Point', coordinates: coords[0] } });
+
+  // Set overlays initial state
+  updateOverlay({ dateText: '—', distNm: 0, speedKn: 0, leg });
+
+  ['preview-btn','record-btn','frame-btn'].forEach(b =>
+    document.getElementById(b).disabled = false);
+  setStatus('render-status', 'Ready. Hit Preview or Record.');
+}
+
+function updateOverlay({ dateText, distNm, speedKn, leg }) {
+  document.getElementById('ov-leg').classList.toggle('hidden',
+    !(leg && leg.overlays && (leg.overlays.date || leg.overlays.distance || leg.overlays.speed)));
+  document.getElementById('ov-date').classList.toggle('hidden', !leg.overlays.date);
+  document.getElementById('ov-distance').classList.toggle('hidden', !leg.overlays.distance);
+  document.getElementById('ov-distance-label').classList.toggle('hidden', !leg.overlays.distance);
+  document.getElementById('ov-speed').classList.toggle('hidden', !leg.overlays.speed);
+  document.getElementById('ov-speed-label').classList.toggle('hidden', !leg.overlays.speed);
+  document.getElementById('ov-date').textContent = dateText;
+  document.getElementById('ov-distance').textContent =
+    distNm.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' nm';
+  document.getElementById('ov-speed').textContent = speedKn.toFixed(1) + ' kn';
+}
+
+// Great-circle distance in nm
+function haversineNm(a, b) {
+  const R = 3440.065;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(b[1]-a[1]), dLon = toRad(b[0]-a[0]);
+  const lat1 = toRad(a[1]), lat2 = toRad(b[1]);
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+// === ANIMATION ===
+function readLegFromUI(baseLeg) {
+  let trimStart = +document.getElementById('trim-start').value || 0;
+  let trimEnd = +document.getElementById('trim-end').value;
+  if (Number.isNaN(trimEnd)) trimEnd = 100;
+  // Guard against inverted/overlapping trim
+  if (trimEnd <= trimStart) trimEnd = Math.min(100, trimStart + 0.5);
+  return {
+    ...baseLeg,
+    duration_sec: +document.getElementById('dur-input').value || baseLeg.duration_sec,
+    camera: document.getElementById('cam-input').value,
+    followZoom: +document.getElementById('follow-zoom').value || 5,
+    trimStart: trimStart / 100,
+    trimEnd: trimEnd / 100,
+    overlays: {
+      date: document.getElementById('ov-date-tog').checked,
+      distance: document.getElementById('ov-dist-tog').checked,
+      speed: document.getElementById('ov-speed-tog').checked,
+    },
+  };
+}
+
+// Given a leg's geojson + trim fractions, return the trimmed coordinates,
+// times, and starting cumulative-nm offset. Includes interpolated end-points
+// at the exact trim boundaries so the visual stop is clean.
+function trimGeojson(gj, trimStart, trimEnd) {
+  const coords = gj.geometry.coordinates;
+  const times = gj.times || [];
+  const n = coords.length;
+  if (n < 2) return { coords, times, startNm: 0, totalNm: 0 };
+
+  // Build cumulative nm for the full track first
+  const fullCum = [0];
+  for (let i = 1; i < n; i++) {
+    fullCum.push(fullCum[i-1] + haversineNm(coords[i-1], coords[i]));
+  }
+  const fullTotal = fullCum[n-1];
+  const startNm = trimStart * fullTotal;
+  const endNm = trimEnd * fullTotal;
+
+  // Find boundary indices and interpolation fractions
+  function findAt(targetNm) {
+    if (targetNm <= 0) return { idx: 0, f: 0 };
+    if (targetNm >= fullTotal) return { idx: n - 2, f: 1 };
+    let i = 0;
+    while (i < n - 1 && fullCum[i+1] < targetNm) i++;
+    const seg = fullCum[i+1] - fullCum[i] || 1;
+    return { idx: i, f: (targetNm - fullCum[i]) / seg };
+  }
+  const a = findAt(startNm);
+  const b = findAt(endNm);
+
+  function interp(idx, f) {
+    const p0 = coords[idx], p1 = coords[idx+1] || coords[idx];
+    return [p0[0] + (p1[0]-p0[0])*f, p0[1] + (p1[1]-p0[1])*f];
+  }
+  function interpTime(idx, f) {
+    const t0 = times[idx], t1 = times[idx+1] || times[idx];
+    if (!t0) return null;
+    if (!t1) return t0;
+    const ms = new Date(t0).getTime() + (new Date(t1).getTime() - new Date(t0).getTime()) * f;
+    return new Date(ms).toISOString();
+  }
+
+  const outCoords = [interp(a.idx, a.f)];
+  const outTimes = [interpTime(a.idx, a.f)];
+  // Include all whole points strictly between the two boundaries
+  for (let i = a.idx + 1; i <= b.idx; i++) {
+    outCoords.push(coords[i]);
+    outTimes.push(times[i] || null);
+  }
+  outCoords.push(interp(b.idx, b.f));
+  outTimes.push(interpTime(b.idx, b.f));
+
+  return { coords: outCoords, times: outTimes, startNm, totalNm: endNm - startNm };
+}
+
+function animateLeg(leg, gj, { onDone, onFrame } = {}) {
+  // Apply the user's trim before doing anything else; coords/times below all
+  // refer to the trimmed segment so the animation literally cannot extend past
+  // trimEnd.
+  const trimmed = trimGeojson(gj, leg.trimStart ?? 0, leg.trimEnd ?? 1);
+  const coords = trimmed.coords;
+  const times = trimmed.times;
+  const n = coords.length;
+  const trimOffsetNm = trimmed.startNm; // for the "distance" overlay reading
+
+  // Precompute cumulative distance + cumulative voyage-hours over the trimmed
+  // track. The hours array is used for the speed running-average — windowed
+  // queries become O(1) (cumHr[idx] - cumHr[idx - winPts]), which matters for
+  // dense legs like the ocean crossings.
+  const cumNm = [0];
+  const cumHr = [0];
+  for (let i = 1; i < n; i++) {
+    cumNm.push(cumNm[i-1] + haversineNm(coords[i-1], coords[i]));
+    let dh = 0;
+    if (times[i] && times[i-1]) {
+      const v = (new Date(times[i]) - new Date(times[i-1])) / 3600000;
+      // Clamp absurd gaps (boat at anchor, GPS off, etc.) so they don't
+      // poison the running average.
+      if (v > 0 && v < 6) dh = v;
+    }
+    cumHr.push(cumHr[i-1] + dh);
+  }
+  const totalNm = cumNm[n-1];
+
+  const durationMs = leg.duration_sec * 1000;
+  const start = performance.now();
+  const followZoom = leg.followZoom ?? 5;
+
+  // Speed running-average window (in track points) and on-screen refresh
+  // throttle (in animation-time seconds). Read once per animation — the user
+  // can re-Preview/Record to pick up new slider values.
+  const smoothPct = Math.max(0, Math.min(25,
+    +document.getElementById('speed-smooth').value || 0));
+  const winPts = Math.max(1, Math.floor(n * smoothPct / 100));
+  const speedRefreshSec = Math.max(0, Math.min(5,
+    +document.getElementById('speed-update').value || 0));
+  let lastSpeedShownAt = -Infinity;  // animation-seconds at last refresh
+  let displayedSpeedKn = 0;
+
+  function step(now) {
+    const t = Math.min(1, (now - start) / durationMs);
+    // Use ease-in-out for camera-follow modes; linear for static so the line draws steadily
+    const eased = leg.camera === 'static' ? t : (t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2);
+
+    // Find index by cumulative distance
+    const targetNm = eased * totalNm;
+    let idx = 0;
+    while (idx < n-1 && cumNm[idx+1] < targetNm) idx++;
+    // interpolate within segment
+    const segNm = cumNm[idx+1] - cumNm[idx] || 1;
+    const f = (targetNm - cumNm[idx]) / segNm;
+    const p = [
+      coords[idx][0] + (coords[idx+1] ? (coords[idx+1][0]-coords[idx][0])*f : 0),
+      coords[idx][1] + (coords[idx+1] ? (coords[idx+1][1]-coords[idx][1])*f : 0),
+    ];
+
+    // Drawn track up to idx + interpolation point
+    const drawn = coords.slice(0, idx+1).concat([p]);
+    map.getSource('track').setData({
+      type: 'Feature', geometry: { type: 'LineString', coordinates: drawn } });
+    map.getSource('boat').setData({
+      type: 'Feature', geometry: { type: 'Point', coordinates: p } });
+
+    // Camera behavior
+    if (leg.camera === 'follow') {
+      map.jumpTo({ center: p, zoom: followZoom });
+    } else if (leg.camera === 'keyframe') {
+      // Start at the fitted bounds zoom, push in around the midpoint
+      const zStart = map.getZoom();
+      const zoomPulse = Math.sin(t * Math.PI); // 0 -> 1 -> 0
+      const targetZoom = zStart + zoomPulse * 1.5;
+      map.jumpTo({ center: p, zoom: targetZoom });
+    } // static: do nothing
+
+    // Overlays
+    const dateText = times[idx]
+      ? new Date(times[idx]).toLocaleDateString('en-US',
+          { year: 'numeric', month: 'long', day: 'numeric' })
+      : '';
+    // Speed: running average over the last `winPts` track segments. Uses the
+    // precomputed cumulative arrays so this is O(1) per frame regardless of
+    // window size. winPts=1 at 0% smoothing → effectively instantaneous.
+    const wStart = Math.max(0, idx - winPts);
+    const winNm = cumNm[idx] - cumNm[wStart];
+    const winHr = cumHr[idx] - cumHr[wStart];
+    const speedKn = winHr > 0 ? (winNm / winHr) : 0;
+
+    // Throttle the displayed value: at speedRefreshSec=0 it updates every
+    // frame; at >0, it updates only after that many animation-seconds elapse.
+    // First frame always updates because lastSpeedShownAt = -Infinity.
+    const elapsedSec = (now - start) / 1000;
+    if (speedRefreshSec <= 0 ||
+        (elapsedSec - lastSpeedShownAt) >= speedRefreshSec) {
+      displayedSpeedKn = speedKn;
+      lastSpeedShownAt = elapsedSec;
+    }
+
+    // Distance overlay reads cumulative from the trim start (so the trimmed
+    // segment "begins at 0 nm"); change to (trimOffsetNm + targetNm) if you'd
+    // rather show distance into the original leg.
+    updateOverlay({ dateText, distNm: targetNm, speedKn: displayedSpeedKn, leg });
+
+    if (onFrame) onFrame(t);
+    if (t < 1) {
+      animFrameId = requestAnimationFrame(step);
+    } else {
+      animFrameId = null;
+      if (onDone) onDone();
+    }
+  }
+  animFrameId = requestAnimationFrame(step);
+}
+
+function stopAnim() {
+  if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+}
+
+// === OUTPUT RESOLUTION ===
+function getOutputResolution() {
+  const W = Math.max(320, Math.min(7680, +document.getElementById('res-w').value || 1920));
+  const H = Math.max(240, Math.min(4320, +document.getElementById('res-h').value || 1080));
+  return { W, H };
+}
+function getFps() { return +document.getElementById('res-fps').value || 30; }
+function getBitrate() {
+  return (+document.getElementById('res-bitrate').value || 12) * 1_000_000;
+}
+
+// The map canvas reflects the live on-screen size. We composite it onto our
+// target-resolution canvas with object-fit "cover" semantics so the output
+// aspect ratio is honored even if the on-screen map is a different shape.
+function drawMapToComposite(ctx, mapCanvas, W, H) {
+  // Background fill in case the map canvas is letterboxed
+  ctx.fillStyle = '#0a1622';
+  ctx.fillRect(0, 0, W, H);
+
+  const sw = mapCanvas.width, sh = mapCanvas.height;
+  if (!sw || !sh) return;
+
+  const srcAspect = sw / sh;
+  const dstAspect = W / H;
+  // "cover": fill the output, crop the longer dimension of the source
+  let sx = 0, sy = 0, sCropW = sw, sCropH = sh;
+  if (srcAspect > dstAspect) {
+    // source wider — crop horizontally
+    sCropW = sh * dstAspect;
+    sx = (sw - sCropW) / 2;
+  } else {
+    sCropH = sw / dstAspect;
+    sy = (sh - sCropH) / 2;
+  }
+  ctx.drawImage(mapCanvas, sx, sy, sCropW, sCropH, 0, 0, W, H);
+}
+
+// === RECORDING ===
+function startRecord() {
+  if (!currentLegId) return;
+  const leg = readLegFromUI(getLegById(currentLegId));
+  const gj = geojsonCache[currentLegId];
+  if (!gj) return setStatus('render-status', 'GeoJSON missing', '#d04040');
+
+  const { W, H } = getOutputResolution();
+  const fps = getFps();
+  const bitrate = getBitrate();
+
+  // Reset to the trimmed start point so the first recorded frame is the
+  // beginning of the trimmed track, not the original leg's start.
+  const trimmedStart = trimGeojson(gj, leg.trimStart, leg.trimEnd).coords[0];
+  map.getSource('track').setData({
+    type:'Feature', geometry:{ type:'LineString', coordinates: [trimmedStart] }});
+  map.getSource('boat').setData({
+    type:'Feature', geometry:{ type:'Point', coordinates: trimmedStart }});
+
+  const mapCanvas = map.getCanvas();
+  const composite = document.createElement('canvas');
+  composite.width = W; composite.height = H;
+  const ctx = composite.getContext('2d');
+
+  const stream = composite.captureStream(fps);
+  recordChunks = [];
+  // Prefer VP9 in WebM
+  const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  const mt = types.find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+  mediaRecorder = new MediaRecorder(stream, { mimeType: mt, videoBitsPerSecond: bitrate });
+  mediaRecorder.ondataavailable = e => { if (e.data.size) recordChunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    const blob = new Blob(recordChunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${legFileTag(currentLegId)}_${W}x${H}.webm`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setStatus('render-status', `Saved ${W}×${H} WebM. Recording done.`, '#4a9eff');
+  };
+  mediaRecorder.start();
+
+  // Composite frame loop: scales map canvas onto our target-resolution canvas
+  let compositing = true;
+  function compose() {
+    if (!compositing) return;
+    drawMapToComposite(ctx, mapCanvas, W, H);
+    drawOverlaysToCanvas(ctx, W, H, leg);
+    requestAnimationFrame(compose);
+  }
+  compose();
+
+  document.getElementById('record-btn').classList.add('recording');
+  setStatus('render-status', `Recording ${W}×${H} @ ${fps}fps…`, '#d04040');
+
+  animateLeg(leg, gj, {
+    onDone: () => {
+      // Hold final frame for ~1 sec, then stop
+      setTimeout(() => {
+        compositing = false;
+        mediaRecorder.stop();
+        document.getElementById('record-btn').classList.remove('recording');
+      }, 1000);
+    }
+  });
+}
+
+// Render overlay text onto the composite canvas at the chosen output resolution.
+// Fonts scale with the canvas height so they look proportional at any resolution.
+function drawOverlaysToCanvas(ctx, W, H, leg) {
+  // Reference: a 1080-tall canvas uses 36px headline. Scale linearly with H.
+  const s = H / 1080;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.7)';
+  ctx.shadowBlur = 8 * s;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 1 * s;
+  ctx.fillStyle = 'white';
+
+  const margin = 32 * s;
+
+  // Top-left: date + caption
+  if (leg.overlays.date) {
+    ctx.font = `600 ${36*s}px Georgia, serif`;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(document.getElementById('ov-date').textContent, margin, margin);
+    ctx.font = `500 ${14*s}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#cde4f5';
+    const projectTitle = (document.getElementById('project-title').value || '').toUpperCase();
+    ctx.fillText(projectTitle, margin, margin + 44*s);
+    ctx.fillStyle = 'white';
+  }
+
+  // Top-right: leg title
+  ctx.font = `500 ${14*s}px -apple-system, sans-serif`;
+  ctx.textAlign = 'right'; ctx.fillStyle = '#cde4f5';
+  ctx.fillText(leg.name.toUpperCase(), W - margin, margin);
+  ctx.fillStyle = 'white';
+
+  // Bottom-left: distance
+  if (leg.overlays.distance) {
+    ctx.font = `600 ${30*s}px Georgia, serif`;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(document.getElementById('ov-distance').textContent, margin, H - margin - 16*s);
+    ctx.font = `500 ${11*s}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#cde4f5';
+    ctx.fillText('DISTANCE', margin, H - margin);
+    ctx.fillStyle = 'white';
+  }
+
+  // Bottom-right: speed
+  if (leg.overlays.speed) {
+    ctx.font = `600 ${30*s}px Georgia, serif`;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText(document.getElementById('ov-speed').textContent, W - margin, H - margin - 16*s);
+    ctx.font = `500 ${11*s}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#cde4f5';
+    ctx.fillText('SPEED', W - margin, H - margin);
+  }
+
+  ctx.restore();
+}
+
+// === BINDINGS ===
+document.getElementById('token').addEventListener('change', initMap);
+document.getElementById('token').addEventListener('blur', initMap);
+
+// Basemap selector
+document.getElementById('style-input').addEventListener('change', changeBasemap);
+
+// Track color + preset + weight
+document.getElementById('color-input').addEventListener('input', applyTrackStyle);
+document.getElementById('color-preset').addEventListener('change', (e) => {
+  if (e.target.value) {
+    document.getElementById('color-input').value = e.target.value;
+    applyTrackStyle();
+  }
+});
+document.getElementById('line-weight').addEventListener('input', applyTrackStyle);
+
+// Waypoint controls
+['wpt-show', 'wpt-label', 'wpt-icon'].forEach(id =>
+  document.getElementById(id).addEventListener('change', updateWaypointLayer));
+document.getElementById('wpt-color').addEventListener('input', updateWaypointLayer);
+document.getElementById('wpt-color-preset').addEventListener('change', (e) => {
+  if (e.target.value) {
+    document.getElementById('wpt-color').value = e.target.value;
+    updateWaypointLayer();
+  }
+});
+document.getElementById('wpt-size').addEventListener('input', (e) => {
+  document.getElementById('wpt-size-val').textContent = e.target.value;
+  updateWaypointLayer();
+});
+
+// Follow-zoom row visibility tied to camera dropdown
+function updateFollowZoomVisibility() {
+  const cam = document.getElementById('cam-input').value;
+  document.getElementById('follow-zoom-row').style.display =
+    cam === 'follow' ? 'flex' : 'none';
+}
+document.getElementById('cam-input').addEventListener('change', updateFollowZoomVisibility);
+document.getElementById('follow-zoom').addEventListener('input', (e) => {
+  document.getElementById('follow-zoom-val').textContent =
+    (+e.target.value).toFixed(1);
+});
+
+// Speed smoothing window (% of leg points) — readout + persistence
+function updateSpeedSmoothReadout() {
+  const v = +document.getElementById('speed-smooth').value || 0;
+  const label = v === 0 ? 'off' : `${v}%`;
+  document.getElementById('speed-smooth-val').textContent = label;
+  try { localStorage.setItem('speed-smooth', String(v)); } catch (e) {}
+}
+document.getElementById('speed-smooth').addEventListener('input', updateSpeedSmoothReadout);
+
+// Speed-overlay refresh throttle (animation seconds) — readout + persistence
+function updateSpeedUpdateReadout() {
+  const v = +document.getElementById('speed-update').value || 0;
+  const label = v <= 0.05 ? 'realtime' : `${v.toFixed(1)}s`;
+  document.getElementById('speed-update-val').textContent = label;
+  try { localStorage.setItem('speed-update', String(v)); } catch (e) {}
+}
+document.getElementById('speed-update').addEventListener('input', updateSpeedUpdateReadout);
+
+// Trim slider live readouts + guard against crossover
+function updateTrimReadout() {
+  const s = +document.getElementById('trim-start').value;
+  const eEl = document.getElementById('trim-end');
+  let e = +eEl.value;
+  // Enforce ordering: end must be strictly greater than start (by at least 0.5%)
+  if (e <= s + 0.5) {
+    e = Math.min(100, s + 0.5);
+    eEl.value = e;
+  }
+  document.getElementById('trim-start-val').textContent = s.toFixed(1) + '%';
+  document.getElementById('trim-end-val').textContent = e.toFixed(1) + '%';
+}
+document.getElementById('trim-start').addEventListener('input', updateTrimReadout);
+document.getElementById('trim-end').addEventListener('input', updateTrimReadout);
+
+// "Show trim on map" — paints the trimmed segment statically and fits bounds
+// to it, so you can verify what gets recorded before hitting Record.
+document.getElementById('trim-preview').addEventListener('click', () => {
+  if (!currentLegId || !geojsonCache[currentLegId] || !map) return;
+  const leg = readLegFromUI(getLegById(currentLegId));
+  const gj = geojsonCache[currentLegId];
+  const trimmed = trimGeojson(gj, leg.trimStart, leg.trimEnd);
+  map.getSource('track').setData({
+    type: 'Feature', geometry: { type: 'LineString', coordinates: trimmed.coords } });
+  map.getSource('boat').setData({
+    type: 'Feature', geometry: { type: 'Point',
+      coordinates: trimmed.coords[trimmed.coords.length - 1] } });
+  const lons = trimmed.coords.map(c => c[0]);
+  const lats = trimmed.coords.map(c => c[1]);
+  map.fitBounds(
+    [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+    { padding: 80, duration: 600 });
+  setStatus('render-status',
+    `Trim preview: ${trimmed.totalNm.toFixed(1)} nm of ${(trimmed.startNm + trimmed.totalNm).toFixed(1)} nm shown.`,
+    '#4a9eff');
+});
+
+// Reset trim to full range
+document.getElementById('trim-reset').addEventListener('click', () => {
+  document.getElementById('trim-start').value = 0;
+  document.getElementById('trim-end').value = 100;
+  updateTrimReadout();
+  if (currentLegId) selectLeg(currentLegId);
+});
+
+// Resolution preset → width/height inputs
+document.getElementById('res-preset').addEventListener('change', (e) => {
+  const v = e.target.value;
+  if (v === 'custom') return;
+  const [w, h] = v.split('x').map(Number);
+  document.getElementById('res-w').value = w;
+  document.getElementById('res-h').value = h;
+  persistResolutionPrefs();
+});
+// If the user types a custom size, switch the preset to "custom"
+['res-w', 'res-h'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    const w = +document.getElementById('res-w').value;
+    const h = +document.getElementById('res-h').value;
+    const preset = document.getElementById('res-preset');
+    const matched = Array.from(preset.options).find(o => o.value === `${w}x${h}`);
+    preset.value = matched ? matched.value : 'custom';
+    persistResolutionPrefs();
+  });
+});
+document.getElementById('res-fps').addEventListener('change', persistResolutionPrefs);
+document.getElementById('res-bitrate').addEventListener('change', persistResolutionPrefs);
+
+function persistResolutionPrefs() {
+  try {
+    localStorage.setItem('res-w', document.getElementById('res-w').value);
+    localStorage.setItem('res-h', document.getElementById('res-h').value);
+    localStorage.setItem('res-preset', document.getElementById('res-preset').value);
+    localStorage.setItem('res-fps', document.getElementById('res-fps').value);
+    localStorage.setItem('res-bitrate', document.getElementById('res-bitrate').value);
+  } catch(e) {}
+}
+
+// Leg search box
+document.getElementById('leg-search').addEventListener('input', renderLegList);
+
+// Clear an active range — drop the synthetic combined leg and re-select the
+// "from" leg as a normal single-leg selection.
+document.getElementById('combo-clear-btn').addEventListener('click', async () => {
+  const fallback = selectedRange && selectedRange.from;
+  clearRangeState();
+  renderLegList();
+  if (fallback != null) await selectLeg(fallback);
+});
+
+// GPX file loader (custom dataset)
+document.getElementById('gpx-load-btn').addEventListener('click', () => {
+  document.getElementById('gpx-input').click();
+});
+document.getElementById('gpx-input').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (f) await loadGPXFile(f);
+  // Allow re-selecting the same file later
+  e.target.value = '';
+});
+document.getElementById('gpx-reset-btn').addEventListener('click', resetToDefaultSource);
+
+// Project title — live update of the on-screen overlay; the recorded video
+// re-reads the input at draw time so no extra wiring is needed there.
+document.getElementById('project-title').addEventListener('input', applyProjectTitleToOverlay);
+
+// One-time geojson cache import (fallback when fetch fails on file://)
+document.getElementById('geojson-import-btn').addEventListener('click', () => {
+  document.getElementById('geojson-import').click();
+});
+document.getElementById('geojson-import').addEventListener('change', async (e) => {
+  await importGeojsonFiles(Array.from(e.target.files));
+});
+
+// Persist per-leg settings whenever the user changes one. These updates
+// also refresh the leg-list row so its summary stays accurate.
+function persistCurrentLeg() {
+  if (!currentLegId) return;
+  const patch = {
+    duration_sec: +document.getElementById('dur-input').value || 20,
+    camera: document.getElementById('cam-input').value,
+    overlays: {
+      date: document.getElementById('ov-date-tog').checked,
+      distance: document.getElementById('ov-dist-tog').checked,
+      speed: document.getElementById('ov-speed-tog').checked,
+    },
+  };
+  setLegSettings(currentLegId, patch);
+  // Update in-memory config so renderLegList shows fresh values
+  const cfg = getLegById(currentLegId);
+  if (cfg) Object.assign(cfg, patch);
+  renderLegList();
+  // If a combined leg is active, keep the banner's "Xs · camera" summary fresh
+  if (combinedLeg && currentLegId === combinedLeg.id) updateComboBanner();
+}
+['dur-input','cam-input','ov-date-tog','ov-dist-tog','ov-speed-tog']
+  .forEach(id => document.getElementById(id)
+    .addEventListener('change', persistCurrentLeg));
+
+document.getElementById('preview-btn').onclick = () => {
+  if (!currentLegId) return;
+  stopAnim();
+  const leg = readLegFromUI(getLegById(currentLegId));
+  animateLeg(leg, geojsonCache[currentLegId]);
+};
+
+document.getElementById('record-btn').onclick = () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    document.getElementById('record-btn').classList.remove('recording');
+    return;
+  }
+  startRecord();
+};
+
+document.getElementById('frame-btn').onclick = () => {
+  if (!map) return;
+  const { W, H } = getOutputResolution();
+  // Render the current map state at the chosen output resolution
+  const mapCanvas = map.getCanvas();
+  const composite = document.createElement('canvas');
+  composite.width = W; composite.height = H;
+  const ctx = composite.getContext('2d');
+  drawMapToComposite(ctx, mapCanvas, W, H);
+  const leg = readLegFromUI(getLegById(currentLegId));
+  drawOverlaysToCanvas(ctx, W, H, leg);
+  composite.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${legFileTag(currentLegId)}_${W}x${H}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, 'image/png');
+};
+
+// Restore saved resolution preferences
+try {
+  const savedW = localStorage.getItem('res-w');
+  const savedH = localStorage.getItem('res-h');
+  const savedPreset = localStorage.getItem('res-preset');
+  const savedFps = localStorage.getItem('res-fps');
+  const savedBitrate = localStorage.getItem('res-bitrate');
+  if (savedW) document.getElementById('res-w').value = savedW;
+  if (savedH) document.getElementById('res-h').value = savedH;
+  if (savedPreset) document.getElementById('res-preset').value = savedPreset;
+  if (savedFps) document.getElementById('res-fps').value = savedFps;
+  if (savedBitrate) document.getElementById('res-bitrate').value = savedBitrate;
+} catch (e) {}
+
+// Restore saved styling preferences
+try {
+  const savedStyle = localStorage.getItem('basemap');
+  if (savedStyle) document.getElementById('style-input').value = savedStyle;
+  const savedColor = localStorage.getItem('track-color');
+  if (savedColor) document.getElementById('color-input').value = savedColor;
+  const savedWeight = localStorage.getItem('line-weight');
+  if (savedWeight) {
+    document.getElementById('line-weight').value = savedWeight;
+    document.getElementById('line-weight-val').textContent = (+savedWeight).toFixed(1);
+  }
+  // Waypoint settings
+  const savedWpt = JSON.parse(localStorage.getItem('wpt-settings') || 'null');
+  if (savedWpt) {
+    document.getElementById('wpt-show').checked = !!savedWpt.show;
+    document.getElementById('wpt-label').checked = !!savedWpt.label;
+    if (savedWpt.shape) document.getElementById('wpt-icon').value = savedWpt.shape;
+    if (savedWpt.color) document.getElementById('wpt-color').value = savedWpt.color;
+    if (savedWpt.size) {
+      document.getElementById('wpt-size').value = savedWpt.size;
+      document.getElementById('wpt-size-val').textContent = savedWpt.size;
+    }
+  }
+  // Speed overlay sliders
+  const savedSmooth = localStorage.getItem('speed-smooth');
+  if (savedSmooth !== null) {
+    document.getElementById('speed-smooth').value = savedSmooth;
+  }
+  updateSpeedSmoothReadout();
+  const savedUpdate = localStorage.getItem('speed-update');
+  if (savedUpdate !== null) {
+    document.getElementById('speed-update').value = savedUpdate;
+  }
+  updateSpeedUpdateReadout();
+  // Show the count badge immediately even before the map loads
+  const badge = document.getElementById('wpt-count');
+  if (badge) badge.textContent = `(${INLINE_WAYPOINTS.length})`;
+} catch (e) {}
+
+// Restore saved token (initialize map AFTER style preferences are restored,
+// so the map opens with the right basemap)
+try {
+  const t = localStorage.getItem('mapbox-token');
+  if (t) { document.getElementById('token').value = t; initMap(); }
+} catch (e) {}
+
+// === BOOT ===
+// Restore the saved project title before anything reads it
+try {
+  const savedTitle = localStorage.getItem('project-title');
+  if (savedTitle !== null) {
+    document.getElementById('project-title').value = savedTitle;
+  }
+} catch (e) {}
+applyProjectTitleToOverlay();
+
+// If the user previously loaded a custom GPX, restore it; otherwise fall
+// back to the built-in FarOtherSide voyage. Boot is async because IDB is.
+(async () => {
+  let restored = null;
+  try { restored = await idbLoadActiveSource(); } catch (e) {}
+  if (restored && restored.legs && restored.legs.length) {
+    applySourceBundle({
+      sourceKey: restored.sourceKey || 'gpx::restored',
+      sourceName: restored.sourceName || 'Restored GPX',
+      legs: restored.legs,
+      waypoints: restored.waypoints || [],
+      geojsonById: restored.geojsonById || {},
+      title: restored.title,
+    });
+    setStatus('gpx-status',
+      `Restored last-loaded GPX (${restored.legs.length} tracks). Use "Default" to switch back.`,
+      '#789bb8');
+  } else {
+    // Build the leg list immediately from the inlined metadata + saved settings.
+    rebuildConfig();
+    renderLegList();
+    // Detect whether ./geojson/ is reachable (fetch works) or we need the
+    // cache fallback UI; runs in the background.
+    showCacheFallbackIfEmpty();
+  }
+})();
+</script>
+</body>
+</html>
