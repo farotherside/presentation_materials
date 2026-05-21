@@ -327,6 +327,8 @@
     <div class="btn-row">
       <button id="preview-btn" disabled title="Pick a leg from the list first.">Preview</button>
       <button id="record-btn" class="record" disabled title="Pick a leg from the list first.">● Record</button>
+      <button id="stop-btn" class="secondary" disabled
+              title="Stop the current preview or recording. A recording stopped early is still saved.">■ Stop</button>
       <button id="frame-btn" class="secondary" disabled title="Pick a leg from the list first.">Save PNG</button>
     </div>
     <div class="status" id="render-status"></div>
@@ -784,7 +786,7 @@ function applySourceBundle({ sourceKey, sourceName, legs, waypoints, geojsonById
   showCacheFallbackIfEmpty();
 
   // Disable preview/record buttons until a leg is selected
-  ['preview-btn','record-btn','frame-btn'].forEach(b => {
+  ['preview-btn','record-btn','stop-btn','frame-btn'].forEach(b => {
     const el = document.getElementById(b);
     if (el) { el.disabled = true; el.title = 'Pick a leg from the list first.'; }
   });
@@ -1502,7 +1504,7 @@ async function selectLeg(id) {
   // Set overlays initial state
   updateOverlay({ dateText: '—', distNm: 0, speedKn: 0, leg });
 
-  ['preview-btn','record-btn','frame-btn'].forEach(b =>
+  ['preview-btn','record-btn','stop-btn','frame-btn'].forEach(b =>
     document.getElementById(b).disabled = false);
   setStatus('render-status', 'Ready. Hit Preview or Record.');
 }
@@ -1810,10 +1812,17 @@ function startRecord() {
   };
   mediaRecorder.start();
 
-  // Composite frame loop: scales map canvas onto our target-resolution canvas
+  // Composite frame loop: scales map canvas onto our target-resolution canvas.
+  // Bails out either via the local `compositing` flag (set when the animation
+  // completes naturally) or when the user hits Stop — at which point the
+  // recorder transitions to "inactive" and we drop out on the next frame.
   let compositing = true;
   function compose() {
     if (!compositing) return;
+    if (mediaRecorder && mediaRecorder.state !== 'recording') {
+      compositing = false;
+      return;
+    }
     drawMapToComposite(ctx, mapCanvas, W, H);
     drawOverlaysToCanvas(ctx, W, H, leg);
     requestAnimationFrame(compose);
@@ -2108,6 +2117,23 @@ document.getElementById('record-btn').onclick = () => {
   }
   startRecord();
 };
+
+// Stop button — interrupts a Preview or a Record in progress. A recording
+// stopped early is still saved (the MediaRecorder's onstop handler runs as
+// normal and finalises the WebM with whatever has been captured so far).
+function stopActivePlayback() {
+  const wasRecording = mediaRecorder && mediaRecorder.state === 'recording';
+  const wasAnimating = animFrameId != null;
+  stopAnim();
+  if (wasRecording) {
+    try { mediaRecorder.stop(); } catch (e) { /* ignore */ }
+    document.getElementById('record-btn').classList.remove('recording');
+    setStatus('render-status', 'Recording stopped — saving partial WebM…', '#4a9eff');
+  } else if (wasAnimating) {
+    setStatus('render-status', 'Preview stopped.', '#789bb8');
+  }
+}
+document.getElementById('stop-btn').onclick = stopActivePlayback;
 
 document.getElementById('frame-btn').onclick = () => {
   if (!map) return;

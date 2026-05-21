@@ -212,6 +212,9 @@ Reads `<wpt>` elements from the loaded GPX.
 - **Record** — runs the animation while capturing the composite canvas to a
   `.webm` file. Filename: `leg_NN_WxH.webm` for single legs, `legs_F-T_WxH.webm`
   for combined ranges. Click again to abort mid-record.
+- **Stop** — interrupts whatever is currently playing. Stops a Preview in
+  place. Stops a Record and finalises the `.webm` with whatever has been
+  captured so far (the file is still saved, just shorter than a full run).
 - **Save PNG** — captures the current map state at the configured output
   resolution as `.png`.
 
