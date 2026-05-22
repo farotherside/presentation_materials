@@ -42,22 +42,34 @@
   button.secondary { background:#2a4960; }
   #map-wrap { position:relative; }
   #map { width:100%; height:100%; }
+  /* --overlay-scale is multiplied into every overlay font-size and corner
+     offset, so the whole overlay block scales as one unit. JS sets it from
+     the "Overlay size" slider. The recorded canvas output reads the same
+     slider value and multiplies its own scale factor identically. */
+  :root { --overlay-scale: 1; }
   .overlay { position:absolute; pointer-events:none; color:white;
     text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 12px rgba(0,0,0,0.5);
     font-variant-numeric: tabular-nums; }
-  #ov-date { top:24px; left:24px; font-size:28px; font-weight:600;
+  #ov-date { top:calc(24px * var(--overlay-scale)); left:calc(24px * var(--overlay-scale));
+    font-size:calc(28px * var(--overlay-scale)); font-weight:600;
     font-family:Georgia,serif; letter-spacing:0.5px; }
-  #ov-leg { top:54px; left:24px; font-size:14px; color:#cde4f5;
+  #ov-leg { top:calc(54px * var(--overlay-scale)); left:calc(24px * var(--overlay-scale));
+    font-size:calc(14px * var(--overlay-scale)); color:#cde4f5;
     text-transform:uppercase; letter-spacing:2px; font-weight:500; }
-  #ov-distance { bottom:36px; left:24px; font-size:24px; font-weight:600;
+  #ov-distance { bottom:calc(36px * var(--overlay-scale)); left:calc(24px * var(--overlay-scale));
+    font-size:calc(24px * var(--overlay-scale)); font-weight:600;
     font-family:Georgia,serif; }
-  #ov-distance-label { bottom:24px; left:24px; font-size:11px; color:#cde4f5;
+  #ov-distance-label { bottom:calc(24px * var(--overlay-scale)); left:calc(24px * var(--overlay-scale));
+    font-size:calc(11px * var(--overlay-scale)); color:#cde4f5;
     text-transform:uppercase; letter-spacing:1.5px; }
-  #ov-speed { bottom:36px; right:24px; font-size:24px; font-weight:600;
+  #ov-speed { bottom:calc(36px * var(--overlay-scale)); right:calc(24px * var(--overlay-scale));
+    font-size:calc(24px * var(--overlay-scale)); font-weight:600;
     font-family:Georgia,serif; text-align:right; }
-  #ov-speed-label { bottom:24px; right:24px; font-size:11px; color:#cde4f5;
+  #ov-speed-label { bottom:calc(24px * var(--overlay-scale)); right:calc(24px * var(--overlay-scale));
+    font-size:calc(11px * var(--overlay-scale)); color:#cde4f5;
     text-transform:uppercase; letter-spacing:1.5px; text-align:right; }
-  #ov-title { top:24px; right:24px; font-size:13px; color:#cde4f5;
+  #ov-title { top:calc(24px * var(--overlay-scale)); right:calc(24px * var(--overlay-scale));
+    font-size:calc(13px * var(--overlay-scale)); color:#cde4f5;
     letter-spacing:1px; text-align:right; max-width:300px; }
   .overlay.hidden { display:none; }
   .status { font-size:11px; color:#789bb8; margin-top:8px; min-height:14px; }
@@ -309,6 +321,12 @@
         <input type="checkbox" id="ov-dist-tog" checked> dist</label>
       <label style="flex:0 0 auto;color:#e8eaed;font-size:11px;">
         <input type="checkbox" id="ov-speed-tog"> speed</label>
+    </div>
+    <div class="control-line"
+         title="Scale all overlay text uniformly (date, title, distance, speed). 1.0× is the default; 2.0× doubles font sizes and corner spacing together.">
+      <label>Overlay size</label>
+      <input type="range" id="overlay-scale" min="0.5" max="2.0" step="0.05" value="1.0" style="flex:1;">
+      <span id="overlay-scale-val" style="color:#789bb8;font-size:11px;width:42px;">1.00×</span>
     </div>
     <div class="control-line"
          title="Window for the speed running-average, as % of the leg's points. 0% = instantaneous, 25% = heavy smoothing.">
@@ -1845,10 +1863,14 @@ function startRecord() {
 }
 
 // Render overlay text onto the composite canvas at the chosen output resolution.
-// Fonts scale with the canvas height so they look proportional at any resolution.
+// Fonts scale with the canvas height so they look proportional at any resolution,
+// then the user's "Overlay size" multiplier is applied on top so the same
+// composition can be made bigger or smaller without changing relative proportions.
 function drawOverlaysToCanvas(ctx, W, H, leg) {
-  // Reference: a 1080-tall canvas uses 36px headline. Scale linearly with H.
-  const s = H / 1080;
+  // Reference: a 1080-tall canvas uses 36px headline. Scale linearly with H,
+  // then multiply by the user's overlay-size choice (default 1.0×).
+  const overlayScale = +document.getElementById('overlay-scale').value || 1.0;
+  const s = (H / 1080) * overlayScale;
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.7)';
   ctx.shadowBlur = 8 * s;
@@ -1961,6 +1983,17 @@ function updateSpeedUpdateReadout() {
   try { localStorage.setItem('speed-update', String(v)); } catch (e) {}
 }
 document.getElementById('speed-update').addEventListener('input', updateSpeedUpdateReadout);
+
+// Overlay-size multiplier — uniformly scales all overlay text and corner
+// spacing. Writes a CSS variable so the on-screen preview updates instantly;
+// drawOverlaysToCanvas re-reads the slider at draw time for recorded output.
+function updateOverlayScaleReadout() {
+  const v = +document.getElementById('overlay-scale').value || 1.0;
+  document.getElementById('overlay-scale-val').textContent = v.toFixed(2) + '×';
+  document.documentElement.style.setProperty('--overlay-scale', String(v));
+  try { localStorage.setItem('overlay-scale', String(v)); } catch (e) {}
+}
+document.getElementById('overlay-scale').addEventListener('input', updateOverlayScaleReadout);
 
 // Trim slider live readouts + guard against crossover
 function updateTrimReadout() {
@@ -2204,6 +2237,12 @@ try {
     document.getElementById('speed-update').value = savedUpdate;
   }
   updateSpeedUpdateReadout();
+  // Overlay size multiplier
+  const savedOverlayScale = localStorage.getItem('overlay-scale');
+  if (savedOverlayScale !== null) {
+    document.getElementById('overlay-scale').value = savedOverlayScale;
+  }
+  updateOverlayScaleReadout();
   // Show the count badge immediately even before the map loads
   const badge = document.getElementById('wpt-count');
   if (badge) badge.textContent = `(${INLINE_WAYPOINTS.length})`;

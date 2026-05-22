@@ -196,6 +196,12 @@ Reads `<wpt>` elements from the loaded GPX.
   verify what'll be recorded.
 - **Reset** — resets trim to the full track.
 - **Overlays** — date / distance / speed checkboxes. Each toggle persists.
+- **Overlay size** — global multiplier (0.5×–2.0×) on the size of all
+  overlay text and the corner spacing. Affects the on-screen preview
+  instantly (via a CSS variable) and the recorded canvas output (read at
+  draw time). Default 1.0× matches the historical behaviour. Use a higher
+  value for large auditorium displays or low-contrast basemaps; lower for
+  understated overlays on busy maps.
 - **Speed smooth** — window size for the running-average speed, as % of the
   leg's track points (0–25%). 0% is effectively instantaneous; 3% is the
   default and removes most jitter; 25% is heavy smoothing where the value
