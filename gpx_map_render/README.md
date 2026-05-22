@@ -644,6 +644,19 @@ or interpolation — the boat just "teleports" to the start of the next leg.
 For voyages where every leg starts where the previous one ended (the typical
 case), this is invisible.
 
+**Recorded video starts at a different zoom than what I saw on screen
+(especially for multi-leg ranges).** This used to happen because the tile
+prewarm pass called `fitBounds(track bbox)` in follow/keyframe modes before
+recording started, clobbering any manual zoom you'd composed. The recorder
+now snapshots the live camera (center, zoom, bearing, pitch) the instant
+you hit **Record**, lets prewarm walk the track to load tiles, then jumps
+back to your composed view before the first frame is captured. Whatever you
+saw in Preview is what the render starts with — even for combined ranges
+where the auto-fit bbox is much wider than the shot you actually want.
+(Related: keyframe mode's pulse used to drift upward across frames because
+it re-read the "base" zoom on every step; it now captures that base once
+at animation start, so the pulse is symmetric.)
+
 **The recorded WebM looks blurry / pixelated at 4K.**
 Resize your Chrome window so the map panel is at least 3840 px wide before
 recording, or accept the upscale. The overlays will be sharp regardless.

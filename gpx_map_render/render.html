@@ -1828,6 +1828,11 @@ function animateLeg(leg, gj, { onDone, onFrame } = {}) {
   const durationMs = leg.duration_sec * 1000;
   const start = performance.now();
   const followZoom = leg.followZoom ?? 5;
+  // Keyframe pulses ±1.5 zoom around whatever the camera was sitting at when
+  // the animation began. We capture this ONCE here, not per-frame: the old
+  // code re-read map.getZoom() inside step() and was reading its own just-
+  // applied jumpTo() value, so the "base" zoom drifted upward across frames.
+  const keyframeBaseZoom = map.getZoom();
 
   // Speed running-average window (in track points) and on-screen refresh
   // throttle (in animation-time seconds). Read once per animation — the user
@@ -1868,10 +1873,13 @@ function animateLeg(leg, gj, { onDone, onFrame } = {}) {
     if (leg.camera === 'follow') {
       map.jumpTo({ center: p, zoom: followZoom });
     } else if (leg.camera === 'keyframe') {
-      // Start at the fitted bounds zoom, push in around the midpoint
-      const zStart = map.getZoom();
+      // Push in around the midpoint, starting from the captured base zoom
+      // (whatever was on screen when the animation began). Using the per-
+      // animation `keyframeBaseZoom` keeps the pulse symmetric — without it,
+      // each jumpTo() bumped the next frame's "base" up by the previous
+      // pulse delta and the zoom ramped instead of pulsed.
       const zoomPulse = Math.sin(t * Math.PI); // 0 -> 1 -> 0
-      const targetZoom = zStart + zoomPulse * 1.5;
+      const targetZoom = keyframeBaseZoom + zoomPulse * 1.5;
       map.jumpTo({ center: p, zoom: targetZoom });
     } // static: do nothing
 
@@ -2508,8 +2516,34 @@ function renderCurrentLegToBlob(opts = {}) {
         type:'Feature', geometry:{ type:'Point', coordinates: trimmedStart } });
       updateOverlay({ dateText: '—', distNm: 0, speedKn: 0, leg });
 
+      // Snapshot the user's current camera so we can restore it after the
+      // prewarm pass. Without this, follow/keyframe modes' prewarm calls
+      // fitBounds(combined bbox) and the recorded video starts at that
+      // (often near-world) zoom instead of whatever the user composed and
+      // saw in Preview. Static mode's prewarm already preserves the view,
+      // so the restore is a no-op in that case. For combined-leg ranges
+      // (especially antimeridian-crossing voyages) the auto-fitted bbox is
+      // huge, so without this restore the render diverges noticeably from
+      // the preview.
+      const startCam = {
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      };
+
       setStatus('render-status', (opts.statusPrefix || '') + 'Pre-loading map tiles…', '#4a9eff');
       await prewarmTilesForLeg(leg, gj);
+
+      // Restore the pre-prewarm camera so animateLeg starts from the
+      // exact view the user was looking at when they hit Record. This is
+      // what makes Preview and the recorded video agree.
+      map.jumpTo({
+        center: startCam.center,
+        zoom: startCam.zoom,
+        bearing: startCam.bearing,
+        pitch: startCam.pitch,
+      });
 
       const mapCanvas = map.getCanvas();
       const composite = document.createElement('canvas');
