@@ -19,12 +19,33 @@
     background:#0a1622; border:1px solid #2a4960; color:#e8eaed; border-radius:4px;
     font-family:ui-monospace,monospace; font-size:11px; }
   .leg-item { padding:8px 10px; border-radius:5px; cursor:pointer; margin-bottom:3px;
-    border:1px solid transparent; font-size:13px; }
+    border:1px solid transparent; font-size:13px;
+    display:grid; grid-template-columns: 18px 1fr; gap:8px; align-items:center; }
   .leg-item:hover { background:#172a3c; }
   .leg-item.active { background:#1a3a5e; border-color:#4a9eff; }
   .leg-item.in-range { background:#152d44; border-color:#3a7ec4; }
   .leg-item.in-range.active { background:#1a3a5e; border-color:#4a9eff; }
+  .leg-item.queued { box-shadow: inset 2px 0 0 #34d399; }
   .leg-item .meta { font-size:11px; color:#789bb8; margin-top:2px; }
+  .leg-item .leg-body { min-width:0; }
+  /* Checkbox that adds the leg to the batch render queue. It sits at the left
+     edge of the row and stops click propagation so toggling the queue doesn't
+     also change which leg is loaded on the map. */
+  .leg-queue-box { display:flex; align-items:center; justify-content:center;
+    width:18px; height:18px; border:1.5px solid #3a5970; border-radius:3px;
+    background:#0a1622; cursor:pointer; flex-shrink:0; transition:all 0.1s; }
+  .leg-queue-box:hover { border-color:#34d399; background:#0f2a26; }
+  .leg-queue-box.checked { background:#34d399; border-color:#34d399; }
+  .leg-queue-box.checked::after { content:'✓'; color:#0a1622; font-size:13px;
+    font-weight:bold; line-height:1; }
+  /* The batch queue row sits under the leg list. The Render queue button uses
+     the same accent color (green) as the queued-leg indicators so the UI tells
+     the user what's connected at a glance. */
+  #batch-row { display:flex; gap:6px; margin:8px 0 4px 0; flex-wrap:wrap; }
+  #batch-row button { flex:1; min-width:0; font-size:11px; padding:5px 8px; }
+  #batch-render-btn { background:#1e8a5e; flex:2; }
+  #batch-render-btn:hover { background:#26a672; }
+  #batch-render-btn:disabled { background:#2a3a4a; }
   #combo-banner { padding:8px 10px; background:#1a3a5e; border:1px solid #4a9eff;
     border-radius:5px; margin-bottom:6px; font-size:12px; }
   #combo-banner .meta { font-size:11px; color:#cde4f5; margin-top:3px; }
@@ -121,7 +142,8 @@
                   border:1px solid #2a4960;color:#e8eaed;border-radius:4px;
                   font-size:12px;margin-bottom:4px;">
     <div style="font-size:10px;color:#789bb8;margin-bottom:6px;">
-      Click a leg to select it · Shift-click another to combine the range
+      Click a leg to select it · Shift-click another to combine the range ·
+      Check the box to add to the batch render queue
     </div>
     <div id="combo-banner" style="display:none;">
       <div style="display:flex;align-items:center;gap:6px;">
@@ -131,6 +153,12 @@
       <div class="meta" id="combo-banner-meta"></div>
     </div>
     <div id="leg-list" class="leg-list"><div class="empty">Loading legs…</div></div>
+    <div id="batch-row"
+         title="Render every queued leg sequentially with its own saved per-leg settings. Use the same global settings (basemap, resolution, etc.) currently shown — change them once and re-run the queue to regenerate every video with the new look.">
+      <button class="secondary" id="queue-all-btn" title="Queue every leg visible in the list">Queue all</button>
+      <button class="secondary" id="queue-clear-btn" title="Clear the batch queue">Clear</button>
+      <button id="batch-render-btn" disabled title="Render every queued leg sequentially">Render queue (0)</button>
+    </div>
     <div class="status" id="config-status"></div>
     <div id="cache-fallback" style="display:none;margin-top:6px;">
       <div style="font-size:11px;color:#d4a04a;margin-bottom:4px;">
@@ -365,17 +393,21 @@
       <button id="preview-btn" disabled title="Pick a leg from the list first.">Preview</button>
       <button id="record-btn" class="record" disabled title="Pick a leg from the list first.">● Record</button>
       <button id="stop-btn" class="secondary" disabled
-              title="Stop the current preview or recording. A recording stopped early is still saved.">■ Stop</button>
+              title="Stop the current preview, recording, or batch. A recording stopped early is still saved.">■ Stop</button>
       <button id="frame-btn" class="secondary" disabled title="Pick a leg from the list first.">Save PNG</button>
     </div>
+    <div class="control-line" style="margin-top:4px;">
+      <label style="color:#e8eaed;font-size:11px;flex:1;"
+             title="When checked (default), every recorded WebM is converted to MP4 (H.264) using ffmpeg.wasm. The first conversion downloads the ffmpeg engine (~30 MB, one-time). Uncheck to save WebMs only.">
+        <input type="checkbox" id="mp4-output" checked> Output MP4 (via ffmpeg.wasm)
+      </label>
+    </div>
+    <div class="control-line" style="margin-top:0;">
+      <input type="file" id="config-input" accept=".json,application/json" style="display:none">
+      <button class="secondary" id="load-config-btn" style="flex:1;font-size:11px;padding:4px 8px;"
+              title="Restore every setting from a saved config JSON. Tells you which leg the config was originally for.">Load config…</button>
+    </div>
     <div class="status" id="render-status"></div>
-
-    <details>
-      <summary>Convert WebM → MP4</summary>
-      <code>ffmpeg -i leg_NN.webm -c:v libx264 -pix_fmt yuv420p -crf 18 leg_NN.mp4</code>
-      <small style="color:#789bb8;">Install ffmpeg on Mac: <code>brew install ffmpeg</code><br>
-      (Keynote and most conference AV systems play WebM natively, so MP4 may be optional.)</small>
-    </details>
   </div>
 
   <div id="map-wrap">
@@ -428,6 +460,11 @@ let currentSourceName = DEFAULT_SOURCE_NAME;
 let selectedRange = null;     // null or { from, to } (numeric ids, sorted)
 let combinedLeg = null;       // synthetic leg object (id, name, metadata)
 let combinedGeojson = null;   // synthetic Feature with concatenated coords/times
+// Batch queue: set of stringified leg ids the user has checked for sequential
+// rendering. Persisted to localStorage so a refresh doesn't lose the queue.
+let queuedLegIds = new Set();
+let batchCancel = false;      // flipped by Stop button to halt the queue
+let batchRunning = false;     // true while the queue is actively rendering
 
 // === PER-LEG SETTINGS PERSISTENCE ===
 // Settings keyed by leg id; persisted as a single localStorage blob, but
@@ -817,6 +854,9 @@ function applySourceBundle({ sourceKey, sourceName, legs, waypoints, geojsonById
 
   document.getElementById('source-name').textContent = sourceName;
   rebuildConfig();
+  // Batch queue is namespaced per source — loading a different GPX restores
+  // that source's saved queue, not whatever was queued for the previous one.
+  loadQueueState();
   renderLegList();
   if (map && map.isStyleLoaded()) updateWaypointLayer();
   // Hide / show cache-fallback as appropriate, and clear any previous status
@@ -1548,25 +1588,46 @@ function renderLegList() {
     const div = document.createElement('div');
     const inRange = selectedRange &&
       l.id >= selectedRange.from && l.id <= selectedRange.to;
+    const queued = queuedLegIds.has(String(l.id));
     div.className = 'leg-item'
       + (l.id === currentLegId ? ' active' : '')
-      + (inRange ? ' in-range' : '');
+      + (inRange ? ' in-range' : '')
+      + (queued ? ' queued' : '');
     div.dataset.id = String(l.id);
     const year = (l.start || '').slice(0, 4);
-    div.innerHTML = `<div>${l.id}. ${l.name}</div>
-      <div class="meta">${l.stated_nm ? l.stated_nm.toLocaleString() + ' nm · ' : ''}${year} · ${l.duration_sec}s · ${l.camera}</div>`;
+    // Two-column layout: [queue checkbox] [leg name + metadata]. The checkbox
+    // toggles batch-queue membership independently of which leg is selected
+    // for preview/record.
+    div.innerHTML =
+      `<div class="leg-queue-box ${queued ? 'checked' : ''}"
+            data-queue-id="${l.id}"
+            title="${queued ? 'Remove from batch queue' : 'Add to batch queue'}"></div>
+       <div class="leg-body">
+         <div>${l.id}. ${l.name}</div>
+         <div class="meta">${l.stated_nm ? l.stated_nm.toLocaleString() + ' nm · ' : ''}${year} · ${l.duration_sec}s · ${l.camera}</div>
+       </div>`;
     // mousedown-without-preventDefault keeps Shift's native focus selection
     // from highlighting text in the panel during range-clicking.
     div.addEventListener('mousedown', e => {
       if (e.shiftKey) e.preventDefault();
     });
-    div.onclick = (e) => handleLegClick(l.id, { shiftKey: e.shiftKey });
+    div.onclick = (e) => {
+      // Clicks on the queue checkbox toggle queue state and stop here — they
+      // never change the active leg or build a range.
+      if (e.target.classList.contains('leg-queue-box')) {
+        e.stopPropagation();
+        toggleQueueMember(l.id);
+        return;
+      }
+      handleLegClick(l.id, { shiftKey: e.shiftKey });
+    };
     list.appendChild(div);
     shown++;
   });
   if (shown === 0) {
     list.innerHTML = '<div class="empty">No legs match.</div>';
   }
+  updateQueueCount();
 }
 
 async function selectLeg(id) {
@@ -1960,87 +2021,29 @@ async function prewarmTilesForLeg(leg, gj) {
   // Static: nothing else — the wide-fit view in Phase 1 covers everything.
 }
 
-// === RECORDING ===
+// === RECORDING (single-leg entry point) ===
+// Records the currently selected leg, then saves a .mp4 (or .webm fallback)
+// plus a .json config snapshot next to it. Heavy lifting lives in
+// renderCurrentLegToBlob() + saveRenderOutputs() so the batch loop can reuse
+// the same pipeline without re-triggering downloads for intermediate state.
 async function startRecord() {
   if (!currentLegId) return;
-  const leg = readLegFromUI(getLegById(currentLegId));
-  const gj = geojsonCache[currentLegId];
-  if (!gj) return setStatus('render-status', 'GeoJSON missing', '#d04040');
-
-  const { W, H } = getOutputResolution();
-  const fps = getFps();
-  const bitrate = getBitrate();
-
-  // Reset to the trimmed start point so the first recorded frame is the
-  // beginning of the trimmed track, not the original leg's start.
-  const trimmedStart = trimGeojson(gj, leg.trimStart, leg.trimEnd).coords[0];
-  map.getSource('track').setData({
-    type:'Feature', geometry:{ type:'LineString', coordinates: [trimmedStart] }});
-  map.getSource('boat').setData({
-    type:'Feature', geometry:{ type:'Point', coordinates: trimmedStart }});
-
-  // Pre-warm map tiles before the recorder starts so the WebM doesn't
-  // capture any "white square" tile-loading artifacts. Reset the on-screen
-  // overlays first so a stale value from the previous run isn't shown
-  // during prewarm.
-  updateOverlay({ dateText: '—', distNm: 0, speedKn: 0, leg });
-  setStatus('render-status', 'Pre-loading map tiles…', '#4a9eff');
-  await prewarmTilesForLeg(leg, gj);
-
-  const mapCanvas = map.getCanvas();
-  const composite = document.createElement('canvas');
-  composite.width = W; composite.height = H;
-  const ctx = composite.getContext('2d');
-
-  const stream = composite.captureStream(fps);
-  recordChunks = [];
-  // Prefer VP9 in WebM
-  const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-  const mt = types.find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
-  mediaRecorder = new MediaRecorder(stream, { mimeType: mt, videoBitsPerSecond: bitrate });
-  mediaRecorder.ondataavailable = e => { if (e.data.size) recordChunks.push(e.data); };
-  mediaRecorder.onstop = () => {
-    const blob = new Blob(recordChunks, { type: 'video/webm' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${legFileTag(currentLegId)}_${W}x${H}.webm`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setStatus('render-status', `Saved ${W}×${H} WebM. Recording done.`, '#4a9eff');
-  };
-  mediaRecorder.start();
-
-  // Composite frame loop: scales map canvas onto our target-resolution canvas.
-  // Bails out either via the local `compositing` flag (set when the animation
-  // completes naturally) or when the user hits Stop — at which point the
-  // recorder transitions to "inactive" and we drop out on the next frame.
-  let compositing = true;
-  function compose() {
-    if (!compositing) return;
-    if (mediaRecorder && mediaRecorder.state !== 'recording') {
-      compositing = false;
-      return;
-    }
-    drawMapToComposite(ctx, mapCanvas, W, H);
-    drawOverlaysToCanvas(ctx, W, H, leg);
-    requestAnimationFrame(compose);
+  if (!geojsonCache[currentLegId]) {
+    setStatus('render-status', 'GeoJSON missing', '#d04040');
+    return;
   }
-  compose();
-
-  document.getElementById('record-btn').classList.add('recording');
-  setStatus('render-status', `Recording ${W}×${H} @ ${fps}fps…`, '#d04040');
-
-  animateLeg(leg, gj, {
-    onDone: () => {
-      // Hold final frame for ~1 sec, then stop
-      setTimeout(() => {
-        compositing = false;
-        mediaRecorder.stop();
-        document.getElementById('record-btn').classList.remove('recording');
-      }, 1000);
-    }
-  });
+  let result;
+  try {
+    result = await renderCurrentLegToBlob();
+  } catch (e) {
+    setStatus('render-status', 'Record failed: ' + e.message, '#d04040');
+    document.getElementById('record-btn').classList.remove('recording');
+    return;
+  }
+  const fmt = await saveRenderOutputs(result);
+  const { W, H } = result;
+  setStatus('render-status',
+    `Saved ${W}×${H} ${fmt.toUpperCase()} + JSON config.`, '#4a9eff');
 }
 
 // Render overlay text onto the composite canvas at the chosen output resolution.
@@ -2101,6 +2104,546 @@ function drawOverlaysToCanvas(ctx, W, H, leg) {
   }
 
   ctx.restore();
+}
+
+// === CONFIG SNAPSHOT / RESTORE ===
+// A config snapshot is a JSON object that captures every setting that
+// influences a recorded video — *except* the Mapbox token, which stays
+// in localStorage so secrets don't end up in shared config files. Two uses:
+//   1) Reproducibility: every Record / batch render writes a .json next to
+//      the .mp4/.webm so the exact video can be regenerated later.
+//   2) Tweak-then-rerun: edit one parameter in the JSON (or use Load Config),
+//      and re-run the queue to regenerate every video with the new setting.
+const CONFIG_SCHEMA = 'gpx_map_render/config@1';
+
+function buildConfigSnapshot(baseLeg) {
+  // `baseLeg` is the config.legs entry (or combined synthetic leg). The
+  // *current* UI controls are read for every value — that way the snapshot
+  // is authoritative regardless of whether per-leg settings were already
+  // persisted to localStorage.
+  return {
+    schema: CONFIG_SCHEMA,
+    generated: new Date().toISOString(),
+    source: {
+      key: currentSourceKey,
+      name: currentSourceName,
+      // Numeric leg id, or null if a combined synthetic leg is loaded
+      legId: typeof baseLeg.id === 'number' ? baseLeg.id : null,
+      // For combined legs, record the [from, to] range so loadConfig can
+      // rebuild the same synthetic leg.
+      combinedRange: (baseLeg.range && Array.isArray(baseLeg.range))
+        ? baseLeg.range.slice() : null,
+      legName: baseLeg.name,
+      legComputedNm: baseLeg.computed_nm,
+    },
+    global: {
+      projectTitle: document.getElementById('project-title').value,
+      basemap: document.getElementById('style-input').value,
+      trackColor: document.getElementById('color-input').value,
+      lineWeight: +document.getElementById('line-weight').value,
+      waypoints: getWaypointSettings(),
+      graticule: getGraticuleSettings(),
+      output: {
+        width: +document.getElementById('res-w').value,
+        height: +document.getElementById('res-h').value,
+        fps: getFps(),
+        bitrateMbps: +document.getElementById('res-bitrate').value,
+      },
+      overlayScale: +document.getElementById('overlay-scale').value,
+      speedSmooth: +document.getElementById('speed-smooth').value,
+      speedUpdate: +document.getElementById('speed-update').value,
+    },
+    leg: {
+      durationSec: +document.getElementById('dur-input').value,
+      camera: document.getElementById('cam-input').value,
+      followZoom: +document.getElementById('follow-zoom').value,
+      trimStartPct: +document.getElementById('trim-start').value,
+      trimEndPct: +document.getElementById('trim-end').value,
+      overlays: {
+        date: document.getElementById('ov-date-tog').checked,
+        distance: document.getElementById('ov-dist-tog').checked,
+        speed: document.getElementById('ov-speed-tog').checked,
+      },
+    },
+  };
+}
+
+// Apply a config snapshot to every relevant UI control. Returns a Promise
+// that resolves when the leg has been re-selected (so the caller can chain
+// a record() after).
+async function applyConfigSnapshot(cfg) {
+  if (!cfg || typeof cfg !== 'object') throw new Error('Empty config.');
+  if (cfg.schema !== CONFIG_SCHEMA) {
+    throw new Error(`Unknown config schema: ${cfg.schema || 'missing'}`);
+  }
+  const g = cfg.global || {};
+  const L = cfg.leg || {};
+
+  // Title
+  if (g.projectTitle != null) {
+    document.getElementById('project-title').value = g.projectTitle;
+    applyProjectTitleToOverlay();
+  }
+  // Basemap
+  let basemapChanged = false;
+  if (g.basemap) {
+    const sel = document.getElementById('style-input');
+    const prev = sel.value;
+    sel.value = g.basemap;
+    basemapChanged = (prev !== g.basemap);
+  }
+  // Track styling
+  if (g.trackColor) document.getElementById('color-input').value = g.trackColor;
+  if (typeof g.lineWeight === 'number') {
+    document.getElementById('line-weight').value = g.lineWeight;
+    document.getElementById('line-weight-val').textContent = g.lineWeight.toFixed(1);
+  }
+  // Waypoints
+  const wp = g.waypoints || {};
+  if (wp) {
+    if ('show'  in wp) document.getElementById('wpt-show').checked  = !!wp.show;
+    if ('label' in wp) document.getElementById('wpt-label').checked = !!wp.label;
+    if (wp.shape) document.getElementById('wpt-icon').value = wp.shape;
+    if (wp.color) document.getElementById('wpt-color').value = wp.color;
+    if (wp.size != null) {
+      document.getElementById('wpt-size').value = wp.size;
+      document.getElementById('wpt-size-val').textContent = wp.size;
+    }
+  }
+  // Graticule
+  const gr = g.graticule || {};
+  if (gr) {
+    if ('show' in gr) document.getElementById('grat-show').checked = !!gr.show;
+    if (gr.color) document.getElementById('grat-color').value = gr.color;
+    if (typeof gr.opacity === 'number') {
+      document.getElementById('grat-opacity').value = gr.opacity;
+      document.getElementById('grat-opacity-val').textContent =
+        Math.round(gr.opacity * 100) + '%';
+    }
+    if (typeof gr.spacing === 'number') {
+      const idx = GRAT_SPACINGS.indexOf(gr.spacing);
+      if (idx >= 0) {
+        document.getElementById('grat-spacing').value = idx;
+        document.getElementById('grat-spacing-val').textContent = gr.spacing + '°';
+      }
+    }
+  }
+  // Output resolution / fps / bitrate
+  const o = g.output || {};
+  if (o.width != null)  document.getElementById('res-w').value = o.width;
+  if (o.height != null) document.getElementById('res-h').value = o.height;
+  if (o.fps != null) document.getElementById('res-fps').value = String(o.fps);
+  if (o.bitrateMbps != null) document.getElementById('res-bitrate').value = String(o.bitrateMbps);
+  // Update preset dropdown to match the size
+  if (o.width && o.height) {
+    const preset = document.getElementById('res-preset');
+    const matched = Array.from(preset.options).find(opt => opt.value === `${o.width}x${o.height}`);
+    preset.value = matched ? matched.value : 'custom';
+  }
+  // Overlay / speed
+  if (typeof g.overlayScale === 'number') {
+    document.getElementById('overlay-scale').value = g.overlayScale;
+    updateOverlayScaleReadout();
+  }
+  if (typeof g.speedSmooth === 'number') {
+    document.getElementById('speed-smooth').value = g.speedSmooth;
+    updateSpeedSmoothReadout();
+  }
+  if (typeof g.speedUpdate === 'number') {
+    document.getElementById('speed-update').value = g.speedUpdate;
+    updateSpeedUpdateReadout();
+  }
+
+  // Per-leg controls
+  if (L.durationSec != null) document.getElementById('dur-input').value = L.durationSec;
+  if (L.camera) document.getElementById('cam-input').value = L.camera;
+  if (L.followZoom != null) {
+    document.getElementById('follow-zoom').value = L.followZoom;
+    document.getElementById('follow-zoom-val').textContent = (+L.followZoom).toFixed(1);
+  }
+  updateFollowZoomVisibility();
+  if (L.trimStartPct != null) document.getElementById('trim-start').value = L.trimStartPct;
+  if (L.trimEndPct   != null) document.getElementById('trim-end').value = L.trimEndPct;
+  updateTrimReadout();
+  if (L.overlays) {
+    if ('date'     in L.overlays) document.getElementById('ov-date-tog').checked  = !!L.overlays.date;
+    if ('distance' in L.overlays) document.getElementById('ov-dist-tog').checked  = !!L.overlays.distance;
+    if ('speed'    in L.overlays) document.getElementById('ov-speed-tog').checked = !!L.overlays.speed;
+  }
+
+  // Persist resolution + style preferences so a refresh keeps them
+  persistResolutionPrefs();
+  try { localStorage.setItem('basemap', g.basemap || ''); } catch (e) {}
+  try { localStorage.setItem('track-color', g.trackColor || ''); } catch (e) {}
+  try { localStorage.setItem('line-weight', String(g.lineWeight || 2.5)); } catch (e) {}
+  try { localStorage.setItem('wpt-settings', JSON.stringify(getWaypointSettings())); } catch (e) {}
+  try { localStorage.setItem('grat-settings', JSON.stringify(getGraticuleSettings())); } catch (e) {}
+
+  // Map updates: switching basemap is async (style.load reattaches everything),
+  // so do that first; otherwise just refresh the existing layers in place.
+  if (map) {
+    if (basemapChanged) {
+      changeBasemap();
+      // Give the new style a beat to load before we touch sources
+      await new Promise(r => setTimeout(r, 400));
+    } else {
+      applyTrackStyle();
+      updateWaypointLayer();
+      updateGraticuleLayer();
+    }
+  }
+
+  // Persist the per-leg settings under the leg id so future selects of this
+  // leg see the loaded config, not the previously-saved settings.
+  const legIdFromCfg = (cfg.source && cfg.source.legId)
+    || (cfg.source && cfg.source.combinedRange
+        ? combinedLegId(cfg.source.combinedRange[0], cfg.source.combinedRange[1])
+        : null);
+  if (legIdFromCfg != null) {
+    setLegSettings(legIdFromCfg, {
+      duration_sec: L.durationSec,
+      camera: L.camera,
+      overlays: L.overlays,
+    });
+  }
+
+  // Now re-select the right leg. For a combined range, rebuild the synthetic
+  // leg first, then select it.
+  if (cfg.source && cfg.source.combinedRange) {
+    const [f, t] = cfg.source.combinedRange;
+    selectedRange = { from: f, to: t };
+    const cl = await buildCombinedLeg(f, t);
+    if (cl) {
+      renderLegList();
+      await selectLeg(cl.id);
+      updateComboBanner();
+    } else {
+      throw new Error(`Could not rebuild combined leg ${f}-${t} (track data missing).`);
+    }
+  } else if (cfg.source && cfg.source.legId != null) {
+    // Verify the leg exists in the current source
+    if (!config.legs.find(l => l.id === cfg.source.legId)) {
+      throw new Error(`This config was for leg ${cfg.source.legId} (${cfg.source.legName || '?'}) in "${cfg.source.name || 'unknown source'}", but it's not in the current GPX. Settings still applied — pick a leg manually.`);
+    }
+    await selectLeg(cfg.source.legId);
+  }
+}
+
+// === FFMPEG.WASM (WebM → MP4 conversion) ===
+// Loaded lazily on the first record that needs it. The libraries come from
+// unpkg via dynamic <script> insertion so the rest of the page stays a single
+// file. We deliberately use the single-thread @ffmpeg/core build (not core-mt)
+// because SharedArrayBuffer requires crossOriginIsolated, which file:// pages
+// can't provide. Single-thread H.264 encoding is plenty fast for ~30s clips.
+const FFMPEG_URLS = {
+  ffmpeg:  'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js',
+  util:    'https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js',
+  coreJs:  'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+  coreWasm:'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
+};
+let _ffmpegInstance = null;
+let _ffmpegLoadPromise = null;
+
+function loadExternalScript(src) {
+  return new Promise((resolve, reject) => {
+    // Reuse if already injected
+    const existing = document.querySelector(`script[data-src="${src}"]`);
+    if (existing && existing.dataset.loaded === '1') return resolve();
+    const s = existing || document.createElement('script');
+    s.src = src;
+    s.dataset.src = src;
+    s.onload = () => { s.dataset.loaded = '1'; resolve(); };
+    s.onerror = () => reject(new Error(`Failed to load ${src} — check the network or open render.html via a local server.`));
+    if (!existing) document.head.appendChild(s);
+  });
+}
+
+async function ensureFFmpegLoaded() {
+  if (_ffmpegInstance) return _ffmpegInstance;
+  if (_ffmpegLoadPromise) return _ffmpegLoadPromise;
+  _ffmpegLoadPromise = (async () => {
+    setStatus('render-status',
+      'Loading ffmpeg.wasm (one-time, ~30 MB)…', '#4a9eff');
+    await loadExternalScript(FFMPEG_URLS.ffmpeg);
+    await loadExternalScript(FFMPEG_URLS.util);
+    if (!window.FFmpegWASM || !window.FFmpegWASM.FFmpeg) {
+      throw new Error('ffmpeg.wasm bundle loaded but FFmpeg constructor not found.');
+    }
+    const ff = new window.FFmpegWASM.FFmpeg();
+    ff.on('log', ({ message }) => {
+      // Quiet by default; uncomment for ffmpeg verbose output when debugging:
+      // console.log('[ffmpeg]', message);
+    });
+    await ff.load({ coreURL: FFMPEG_URLS.coreJs, wasmURL: FFMPEG_URLS.coreWasm });
+    _ffmpegInstance = ff;
+    return ff;
+  })();
+  try {
+    return await _ffmpegLoadPromise;
+  } catch (e) {
+    _ffmpegLoadPromise = null;
+    throw e;
+  }
+}
+
+// Convert a WebM blob to an MP4 blob using ffmpeg.wasm. CRF 18 is visually
+// lossless for the kind of map content this produces (mostly smooth pans and
+// soft gradients); yuv420p + faststart make the MP4 playable everywhere
+// (Keynote, PowerPoint, QuickTime, browsers).
+async function convertWebMToMP4(webmBlob, opts = {}) {
+  const ff = await ensureFFmpegLoaded();
+  const fetchFile = window.FFmpegUtil && window.FFmpegUtil.fetchFile;
+  if (!fetchFile) throw new Error('ffmpeg utilities not loaded');
+  const inName = 'in_' + Date.now() + '.webm';
+  const outName = 'out_' + Date.now() + '.mp4';
+  await ff.writeFile(inName, await fetchFile(webmBlob));
+  const args = [
+    '-i', inName,
+    '-c:v', 'libx264',
+    '-pix_fmt', 'yuv420p',
+    '-crf', String(opts.crf != null ? opts.crf : 18),
+    '-preset', opts.preset || 'medium',
+    '-movflags', '+faststart',
+    outName,
+  ];
+  await ff.exec(args);
+  const data = await ff.readFile(outName);
+  try { await ff.deleteFile(inName); } catch (e) {}
+  try { await ff.deleteFile(outName); } catch (e) {}
+  return new Blob([data.buffer], { type: 'video/mp4' });
+}
+
+// === BATCH QUEUE ===
+const QUEUE_KEY_BASE = 'farotherside-batch-queue';
+function queueKey() { return `${QUEUE_KEY_BASE}::${currentSourceKey}`; }
+
+function loadQueueState() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(queueKey()) || '[]');
+    queuedLegIds = new Set(arr.map(String));
+  } catch (e) { queuedLegIds = new Set(); }
+}
+function saveQueueState() {
+  try {
+    localStorage.setItem(queueKey(), JSON.stringify([...queuedLegIds]));
+  } catch (e) {}
+}
+function toggleQueueMember(legId) {
+  const key = String(legId);
+  if (queuedLegIds.has(key)) queuedLegIds.delete(key);
+  else queuedLegIds.add(key);
+  saveQueueState();
+  renderLegList();
+}
+function queueAllVisible() {
+  const q = (document.getElementById('leg-search').value || '').toLowerCase().trim();
+  config.legs.forEach(l => {
+    if (q && !l.name.toLowerCase().includes(q)) return;
+    queuedLegIds.add(String(l.id));
+  });
+  saveQueueState();
+  renderLegList();
+}
+function clearQueue() {
+  queuedLegIds.clear();
+  saveQueueState();
+  renderLegList();
+}
+function updateQueueCount() {
+  const btn = document.getElementById('batch-render-btn');
+  if (!btn) return;
+  const cnt = queuedLegIds.size;
+  btn.textContent = batchRunning ? `Rendering queue…` : `Render queue (${cnt})`;
+  btn.disabled = cnt === 0 || batchRunning;
+}
+
+// === FILE SAVE HELPER ===
+function saveBlobAs(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// === REFACTORED RECORDING PIPELINE ===
+// renderCurrentLegToBlob() does the prewarm + record dance and resolves with
+// the captured WebM blob + the config snapshot. It does NOT save anything —
+// the caller chooses to convert to MP4 or save as-is. This split lets the
+// batch loop record many legs without firing browser download dialogs for
+// intermediate state.
+function renderCurrentLegToBlob(opts = {}) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!currentLegId) throw new Error('No leg selected.');
+      const baseLeg = getLegById(currentLegId);
+      const leg = readLegFromUI(baseLeg);
+      const gj = geojsonCache[currentLegId];
+      if (!gj) throw new Error('Track data missing for this leg.');
+
+      const cfgSnapshot = buildConfigSnapshot(baseLeg);
+      const { W, H } = getOutputResolution();
+      const fps = getFps();
+      const bitrate = getBitrate();
+
+      // Reset visuals to the start of the trimmed segment
+      const trimmedStart = trimGeojson(gj, leg.trimStart, leg.trimEnd).coords[0];
+      map.getSource('track').setData({
+        type:'Feature', geometry:{ type:'LineString', coordinates: [trimmedStart] } });
+      map.getSource('boat').setData({
+        type:'Feature', geometry:{ type:'Point', coordinates: trimmedStart } });
+      updateOverlay({ dateText: '—', distNm: 0, speedKn: 0, leg });
+
+      setStatus('render-status', (opts.statusPrefix || '') + 'Pre-loading map tiles…', '#4a9eff');
+      await prewarmTilesForLeg(leg, gj);
+
+      const mapCanvas = map.getCanvas();
+      const composite = document.createElement('canvas');
+      composite.width = W; composite.height = H;
+      const ctx = composite.getContext('2d');
+
+      const stream = composite.captureStream(fps);
+      recordChunks = [];
+      const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+      const mt = types.find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+      mediaRecorder = new MediaRecorder(stream, { mimeType: mt, videoBitsPerSecond: bitrate });
+      mediaRecorder.ondataavailable = e => { if (e.data.size) recordChunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordChunks, { type: 'video/webm' });
+        document.getElementById('record-btn').classList.remove('recording');
+        resolve({ webmBlob: blob, config: cfgSnapshot, W, H, legId: currentLegId });
+      };
+      mediaRecorder.onerror = (ev) => reject(new Error('MediaRecorder error: ' + ev.error));
+      mediaRecorder.start();
+
+      let compositing = true;
+      function compose() {
+        if (!compositing) return;
+        if (mediaRecorder && mediaRecorder.state !== 'recording') {
+          compositing = false; return;
+        }
+        drawMapToComposite(ctx, mapCanvas, W, H);
+        drawOverlaysToCanvas(ctx, W, H, leg);
+        requestAnimationFrame(compose);
+      }
+      compose();
+
+      document.getElementById('record-btn').classList.add('recording');
+      setStatus('render-status',
+        (opts.statusPrefix || '') + `Recording ${W}×${H} @ ${fps}fps…`, '#d04040');
+
+      animateLeg(leg, gj, {
+        onDone: () => {
+          // Hold the final frame for ~1s before stopping the recorder
+          setTimeout(() => {
+            compositing = false;
+            try { mediaRecorder.stop(); }
+            catch (e) { /* onstop will still fire */ }
+          }, 1000);
+        }
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+// Save the render result to disk (one JSON config + one MP4 or WebM).
+// Returns the actual format used so the caller can update its status.
+async function saveRenderOutputs(renderResult, opts = {}) {
+  const { webmBlob, config: cfgSnapshot, W, H, legId } = renderResult;
+  const fileTag = legFileTag(legId);
+  const baseName = `${fileTag}_${W}x${H}`;
+  const wantMp4 = document.getElementById('mp4-output').checked;
+
+  // Always save the config JSON next to the video so the pair is self-describing
+  saveBlobAs(
+    new Blob([JSON.stringify(cfgSnapshot, null, 2)], { type: 'application/json' }),
+    baseName + '.json'
+  );
+
+  if (wantMp4) {
+    try {
+      setStatus('render-status', (opts.statusPrefix || '') + 'Converting to MP4…', '#4a9eff');
+      const mp4 = await convertWebMToMP4(webmBlob);
+      saveBlobAs(mp4, baseName + '.mp4');
+      return 'mp4';
+    } catch (e) {
+      console.warn('MP4 conversion failed, falling back to WebM:', e);
+      saveBlobAs(webmBlob, baseName + '.webm');
+      setStatus('render-status',
+        (opts.statusPrefix || '') + `MP4 conversion failed (${e.message}). Saved WebM instead.`,
+        '#d4a04a');
+      return 'webm';
+    }
+  } else {
+    saveBlobAs(webmBlob, baseName + '.webm');
+    return 'webm';
+  }
+}
+
+// Batch entry point. Walks the queue in id order, selecting each leg fresh
+// (so its saved per-leg config is hydrated from localStorage), recording,
+// converting, and saving. Stop interrupts between legs.
+async function renderBatchQueue() {
+  if (queuedLegIds.size === 0 || batchRunning) return;
+  // Snapshot the queue in id order — sequential renders are easier to read
+  // back later when filenames are in voyage order.
+  const queuedIds = config.legs
+    .filter(l => queuedLegIds.has(String(l.id)))
+    .map(l => l.id)
+    .sort((a, b) => a - b);
+  if (queuedIds.length === 0) return;
+
+  batchRunning = true;
+  batchCancel = false;
+  updateQueueCount();
+  let done = 0;
+  const failures = [];
+  const total = queuedIds.length;
+  for (const legId of queuedIds) {
+    if (batchCancel) break;
+    const idx = done + 1;
+    const prefix = `Batch ${idx}/${total} (leg ${legId}): `;
+    try {
+      setStatus('render-status', prefix + 'loading track…', '#4a9eff');
+      // selectLeg() repopulates the per-leg UI from saved settings — each
+      // batch leg uses its own duration/camera/overlay configuration.
+      await selectLeg(legId);
+      // Give the fitBounds animation a beat to settle before prewarm
+      await new Promise(r => setTimeout(r, 500));
+      if (batchCancel) break;
+      const result = await renderCurrentLegToBlob({ statusPrefix: prefix });
+      if (batchCancel) {
+        // Still save what we captured — same behavior as Stop on a single record
+        await saveRenderOutputs(result, { statusPrefix: prefix });
+        done++;
+        break;
+      }
+      await saveRenderOutputs(result, { statusPrefix: prefix });
+      done++;
+    } catch (e) {
+      console.error('Batch leg failed', legId, e);
+      failures.push({ legId, err: e.message });
+      done++;
+    }
+  }
+  batchRunning = false;
+  updateQueueCount();
+  if (batchCancel) {
+    setStatus('render-status',
+      `Batch stopped after ${done}/${total} legs.`, '#789bb8');
+  } else if (failures.length) {
+    setStatus('render-status',
+      `Batch done: ${total - failures.length}/${total} OK, ${failures.length} failed (see console).`,
+      '#d4a04a');
+  } else {
+    setStatus('render-status',
+      `Batch complete: ${total} legs rendered.`, '#4a9eff');
+  }
 }
 
 // === BINDINGS ===
@@ -2283,6 +2826,44 @@ document.getElementById('gpx-input').addEventListener('change', async (e) => {
 });
 document.getElementById('gpx-reset-btn').addEventListener('click', resetToDefaultSource);
 
+// === BATCH QUEUE bindings ===
+document.getElementById('queue-all-btn').addEventListener('click', queueAllVisible);
+document.getElementById('queue-clear-btn').addEventListener('click', clearQueue);
+document.getElementById('batch-render-btn').addEventListener('click', renderBatchQueue);
+
+// === MP4 output toggle (persistence) ===
+document.getElementById('mp4-output').addEventListener('change', (e) => {
+  try { localStorage.setItem('mp4-output', e.target.checked ? '1' : '0'); } catch (ex) {}
+});
+
+// === LOAD CONFIG bindings ===
+// "Load config…" opens a file picker; the chosen JSON is parsed, validated,
+// and applied via applyConfigSnapshot. Failures show in the render status
+// without disturbing the rest of the UI.
+document.getElementById('load-config-btn').addEventListener('click', () => {
+  document.getElementById('config-input').click();
+});
+document.getElementById('config-input').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  // Allow re-selecting the same file later
+  e.target.value = '';
+  setStatus('render-status', `Loading ${f.name}…`, '#4a9eff');
+  try {
+    const text = await f.text();
+    const cfg = JSON.parse(text);
+    await applyConfigSnapshot(cfg);
+    const tag = cfg.source && cfg.source.legId != null
+      ? `leg ${cfg.source.legId}` : 'combined leg';
+    setStatus('render-status',
+      `Config applied (${tag}). Hit Record to regenerate the video.`,
+      '#4a9eff');
+  } catch (ex) {
+    console.error(ex);
+    setStatus('render-status', 'Load config failed: ' + ex.message, '#d04040');
+  }
+});
+
 // Project title — live update of the on-screen overlay; the recorded video
 // re-reads the input at draw time so no extra wiring is needed there.
 document.getElementById('project-title').addEventListener('input', applyProjectTitleToOverlay);
@@ -2343,18 +2924,27 @@ document.getElementById('record-btn').onclick = async () => {
   finally { preparingRecord = false; }
 };
 
-// Stop button — interrupts a Preview or a Record in progress. A recording
-// stopped early is still saved (the MediaRecorder's onstop handler runs as
-// normal and finalises the WebM with whatever has been captured so far).
+// Stop button — interrupts a Preview, a Record, or a batch run in progress.
+// A recording stopped early is still saved (the MediaRecorder's onstop
+// handler runs as normal and finalises the WebM with whatever has been
+// captured so far). A batch halts after the current leg saves, so partial
+// progress is never lost.
 function stopActivePlayback() {
   const wasRecording = mediaRecorder && mediaRecorder.state === 'recording';
   const wasAnimating = animFrameId != null;
+  if (batchRunning) {
+    batchCancel = true;
+    setStatus('render-status',
+      'Batch stop requested — finishing current leg, then halting.', '#4a9eff');
+  }
   stopAnim();
   if (wasRecording) {
     try { mediaRecorder.stop(); } catch (e) { /* ignore */ }
     document.getElementById('record-btn').classList.remove('recording');
-    setStatus('render-status', 'Recording stopped — saving partial WebM…', '#4a9eff');
-  } else if (wasAnimating) {
+    if (!batchRunning) {
+      setStatus('render-status', 'Recording stopped — saving partial WebM…', '#4a9eff');
+    }
+  } else if (wasAnimating && !batchRunning) {
     setStatus('render-status', 'Preview stopped.', '#789bb8');
   }
 }
@@ -2456,6 +3046,11 @@ try {
   // Show the count badge immediately even before the map loads
   const badge = document.getElementById('wpt-count');
   if (badge) badge.textContent = `(${INLINE_WAYPOINTS.length})`;
+  // MP4 output checkbox (default on; preserved across sessions)
+  const savedMp4 = localStorage.getItem('mp4-output');
+  if (savedMp4 !== null) {
+    document.getElementById('mp4-output').checked = savedMp4 === '1';
+  }
 } catch (e) {}
 
 // Restore saved token (initialize map AFTER style preferences are restored,
@@ -2495,6 +3090,7 @@ applyProjectTitleToOverlay();
   } else {
     // Build the leg list immediately from the inlined metadata + saved settings.
     rebuildConfig();
+    loadQueueState();
     renderLegList();
     // Detect whether ./geojson/ is reachable (fetch works) or we need the
     // cache fallback UI; runs in the background.

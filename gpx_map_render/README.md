@@ -23,7 +23,8 @@ free Mapbox token, and you're rendering.
 - [Speed running-average and update rate](#speed-running-average-and-update-rate)
 - [Output resolution and aspect ratio](#output-resolution-and-aspect-ratio)
 - [Recording vs. PNG stills](#recording-vs-png-stills)
-- [Converting WebM to MP4](#converting-webm-to-mp4)
+- [MP4 output, batch render, and reproducible configs](#mp4-output-batch-render-and-reproducible-configs)
+- [Converting WebM to MP4 (manual fallback)](#converting-webm-to-mp4-manual-fallback)
 - [File structure](#file-structure)
 - [Troubleshooting](#troubleshooting)
 - [How it works under the hood](#how-it-works-under-the-hood)
@@ -47,9 +48,16 @@ free Mapbox token, and you're rendering.
 
 4. **Click a leg.** The map zooms to fit. Adjust per-leg controls (duration,
    camera, overlays). Hit **Preview** to animate without saving. Hit **Record**
-   to save a `.webm` file. Hit **Save PNG** for a high-res still.
+   to save an `.mp4` plus a `.json` config file describing the exact settings
+   that produced it. Hit **Save PNG** for a high-res still.
 
-5. **(Optional) Load your own GPX.** In the *Data source* section, click
+5. **(Optional) Queue many legs for batch rendering.** Click the green
+   checkbox at the left of any leg row to add it to the batch queue. Hit
+   **Render queue (N)** to render every queued leg sequentially — each one
+   uses its own saved per-leg settings, then writes a matching MP4 + JSON
+   pair. See [MP4 output, batch render, and reproducible configs](#mp4-output-batch-render-and-reproducible-configs).
+
+6. **(Optional) Load your own GPX.** In the *Data source* section, click
    *Load GPX file…* and pick any `.gpx` file. Each `<trk>` element becomes a
    leg in the list.
 
@@ -85,6 +93,22 @@ free Mapbox token, and you're rendering.
   overlays remembered in `localStorage`, scoped per source file so different
   GPX files don't collide.
 - **PNG stills** at any output resolution — handy for slide backgrounds.
+- **MP4 output by default** via a bundled WebAssembly build of ffmpeg
+  (`@ffmpeg/ffmpeg`). The first record loads the engine once (~30 MB,
+  cached by the browser afterward). H.264 yuv420p MP4 plays everywhere —
+  Keynote, PowerPoint, QuickTime, browsers, conference AV. WebM fallback
+  if MP4 conversion fails.
+- **Batch render queue.** Check the box on each leg you want to render,
+  then hit *Render queue (N)* to produce all the videos in one pass. Each
+  leg uses its own saved per-leg settings, but every leg shares the
+  currently-selected basemap, resolution, track color, graticule, and
+  overlay scale. Change a global setting once, re-run the queue, get a
+  full set of regenerated videos.
+- **JSON config alongside every video.** Every Record saves a `.json` next
+  to the `.mp4` capturing every setting that produced it (everything
+  except the Mapbox token). Reload the JSON later via *Load config…* and
+  hit Record to regenerate the exact same video — same basemap, same
+  camera, same overlays, same resolution.
 
 
 ## Workflow
@@ -141,6 +165,14 @@ miles, the year, the configured duration, and the camera mode.
 - **Click a leg** to load its track and zoom the map to it.
 - **Shift-click another leg** to combine the contiguous range — see
   [Multi-leg combined animations](#multi-leg-combined-animations).
+- **Check the green box** at the left of any leg row to add it to the
+  batch render queue. The checkbox is independent of which leg is
+  currently selected — toggling the queue never reloads the map.
+- **Queue all** — adds every visible (filtered) leg to the queue.
+- **Clear** — empties the batch queue.
+- **Render queue (N)** — renders every queued leg sequentially using its
+  own saved per-leg settings, producing an MP4 + JSON pair for each.
+  See [MP4 output, batch render, and reproducible configs](#mp4-output-batch-render-and-reproducible-configs).
 - **The Combined banner** appears above the list when a range is active.
   Click *Clear* to drop the range and return to single-leg mode.
 
@@ -226,17 +258,34 @@ Reads `<wpt>` elements from the loaded GPX.
 - **Preview** — animates without recording. Use this while dialing in
   settings.
 - **Record** — runs the animation while capturing the composite canvas to a
-  `.webm` file. Filename: `leg_NN_WxH.webm` for single legs, `legs_F-T_WxH.webm`
-  for combined ranges. Click again to abort mid-record. Before the recorder
-  starts, the renderer pre-walks the camera through the path the animation
-  will take so all the basemap tiles get fetched and cached — this prevents
-  "white square" tile-loading artifacts from showing up in the recorded
-  video. The first record on a fresh leg takes 3–10 seconds of prewarm; once
-  the browser has cached the tiles, subsequent recordings of the same leg
-  prewarm essentially instantly.
+  `.webm`, then (if MP4 output is on) converts it to an `.mp4` via
+  ffmpeg.wasm. A `.json` config snapshot is always saved next to the video.
+  Filenames: `leg_NN_WxH.mp4` and `leg_NN_WxH.json` for single legs,
+  `legs_F-T_WxH.mp4` / `.json` for combined ranges. Click again to abort
+  mid-record. Before the recorder starts, the renderer pre-walks the camera
+  through the path the animation will take so all the basemap tiles get
+  fetched and cached — this prevents "white square" tile-loading artifacts
+  from showing up in the recorded video. The first record on a fresh leg
+  takes 3–10 seconds of prewarm; once the browser has cached the tiles,
+  subsequent recordings of the same leg prewarm essentially instantly.
 - **Stop** — interrupts whatever is currently playing. Stops a Preview in
-  place. Stops a Record and finalises the `.webm` with whatever has been
-  captured so far (the file is still saved, just shorter than a full run).
+  place. Stops a Record and finalises the file with whatever has been
+  captured so far (the partial WebM is still saved; if MP4 output is on it
+  is converted just like a full recording). During a batch run, Stop
+  halts the queue after the current leg finishes saving — partial progress
+  is never lost.
+- **Output MP4 (via ffmpeg.wasm)** — when checked (default), every recorded
+  WebM is converted to an MP4 (H.264, yuv420p, CRF 18) in-browser. The
+  first conversion downloads ffmpeg.wasm (~30 MB) and caches it; subsequent
+  conversions reuse the loaded engine. Uncheck to save raw WebMs and skip
+  conversion (faster, and useful if Keynote/PowerPoint plays WebM in your
+  workflow). The setting persists across sessions.
+- **Load config…** — opens a file picker for a previously-saved `.json`
+  config. Applies every setting the JSON specifies (basemap, track color,
+  graticule, resolution, overlays, per-leg duration/camera/trim, …),
+  re-selects the leg the config was created for, and prompts you to hit
+  Record. Useful for reproducing an old render exactly or for sharing
+  settings across machines.
 - **Save PNG** — captures the current map state at the configured output
   resolution as `.png`.
 
@@ -362,9 +411,160 @@ Modern presentation software (Keynote, PowerPoint 2019+, Google Slides) plays
 see the next section.
 
 
-## Converting WebM to MP4
+## MP4 output, batch render, and reproducible configs
 
-If your AV system or workflow requires MP4, use `ffmpeg`:
+This section covers the three features that together make the renderer
+*repeatable and batchable*: MP4-by-default, the batch queue, and the JSON
+config that gets saved next to every video.
+
+### MP4 output (in-browser via ffmpeg.wasm)
+
+When the **Output MP4** checkbox in section 8 is on (the default), every
+recording is converted from WebM to MP4 inside the browser using
+[ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm).
+
+- **First conversion takes ~30 MB to download** — the WebAssembly build of
+  ffmpeg + its core. After that the engine is cached by the browser and
+  conversions are local and fast.
+- **Encoding settings** are `libx264 -pix_fmt yuv420p -crf 18 -preset medium
+  -movflags +faststart`. CRF 18 is visually lossless for the kind of
+  content this tool produces (smooth pans, soft gradients). `yuv420p` and
+  `+faststart` make the MP4 play everywhere — Keynote, PowerPoint,
+  QuickTime, web browsers, conference AV systems.
+- **Conversion takes about 0.5–2× the clip duration** on a modern laptop
+  (single-threaded — the multi-thread ffmpeg.wasm core can't be used
+  because it requires `crossOriginIsolated`, which `file://` pages can't
+  set).
+- **If conversion fails** (e.g. CDN unreachable, browser blocks the script),
+  the WebM is saved instead and a warning shows in the render status
+  line. Your recording is never lost — only the format changes.
+- **If you don't need MP4** (Keynote and modern PowerPoint play WebM
+  natively), uncheck the Output MP4 box. The renderer will save raw WebMs
+  and skip the conversion step entirely.
+
+### Batch render queue
+
+Rendering one leg at a time is fine when you're dialing in settings. Once
+the look is locked in and you need ten or twenty clips for the talk,
+queue them and run a batch:
+
+1. **Check the green box** at the left of each leg row you want to render.
+   The leg gets a green accent stripe on the left edge to show it's queued.
+2. The **Render queue (N)** button updates with the queue size and lights up.
+3. (Optional) **Queue all** queues every leg currently visible in the leg
+   list — combine with the search filter to queue subsets (e.g. type
+   "Hawaii" in the search box, then *Queue all*).
+4. Hit **Render queue (N)**. The renderer walks the queue in id order:
+   - Selects each leg fresh (its own saved per-leg config — duration,
+     camera, trim, overlays — gets hydrated from `localStorage`).
+   - Pre-warms tiles, records, converts to MP4, and saves an MP4 + JSON
+     pair before moving on.
+   - Status line shows `Batch 3/12 (leg 11): Recording 1920×1080 @ 30fps…`
+     so you can leave it running.
+5. **Stop** halts the queue after the current leg finishes saving. The
+   queue itself is unchanged — hit *Render queue* again to resume.
+6. **Failures** (e.g. missing track data, ffmpeg load error) are logged to
+   the browser console and counted in the final status line; the batch
+   keeps going through the remaining legs.
+
+The batch queue is persisted to `localStorage` per source — restoring a
+different GPX restores that GPX's saved queue, not the previous one's.
+
+**Note:** Combined-leg synthetic ids (`combined:3-7`) can't be queued —
+batch only handles individual legs. Render combined ranges one at a time
+via the regular Record button.
+
+### JSON config file (everything except the token)
+
+Every recording writes a `.json` next to the `.mp4` (or `.webm`) describing
+exactly the settings that produced it. The schema is `gpx_map_render/config@1`
+and looks like:
+
+```json
+{
+  "schema": "gpx_map_render/config@1",
+  "generated": "2026-05-22T16:42:00.000Z",
+  "source": {
+    "key": "farotherside",
+    "name": "FarOtherSide (built-in, 84 legs)",
+    "legId": 11,
+    "combinedRange": null,
+    "legName": "Barra de Navidad → Lahaina, Maui",
+    "legComputedNm": 3155.5
+  },
+  "global": {
+    "projectTitle": "FAROTHERSIDE",
+    "basemap": "mapbox://styles/mapbox/dark-v11",
+    "trackColor": "#ffd166",
+    "lineWeight": 2.5,
+    "waypoints": { "show": true, "label": true, "shape": "circle",
+                   "color": "#ff4f00", "size": 14 },
+    "graticule":  { "show": true, "spacing": 10,
+                    "color": "#ffffff", "opacity": 0.3 },
+    "output":     { "width": 1920, "height": 1080, "fps": 30, "bitrateMbps": 12 },
+    "overlayScale": 1.0,
+    "speedSmooth": 3,
+    "speedUpdate": 0
+  },
+  "leg": {
+    "durationSec": 35,
+    "camera": "static",
+    "followZoom": 5,
+    "trimStartPct": 0,
+    "trimEndPct": 100,
+    "overlays": { "date": true, "distance": true, "speed": false }
+  }
+}
+```
+
+The Mapbox token is deliberately **not** included — it lives in your
+browser's `localStorage` and never ends up in shared config files.
+
+### Reproducing an old render
+
+To recreate a video you rendered weeks ago:
+
+1. Open `render.html` (paste the Mapbox token if it isn't already restored).
+2. Click **Load config…** in section 8 and pick the `.json` file.
+3. The renderer applies every captured setting and re-selects the
+   originating leg. If the basemap differs it switches styles (briefly).
+4. Hit **Record**. The new file should be byte-comparable to the original
+   modulo h.264 encoder non-determinism and Mapbox tile updates.
+
+### Tweak one parameter, regenerate the whole set
+
+The interaction the batch + config combination is designed for:
+
+1. Queue every leg you care about (e.g. all 12 ocean crossings).
+2. Render the queue. You get 12 MP4 + 12 JSON files.
+3. Change one global setting — switch the basemap, bump the overlay
+   size, recolor the track, turn on the graticule, change output
+   resolution to 4K.
+4. Hit **Render queue** again. All 12 videos regenerate with the new
+   setting, every per-leg trim/camera/duration choice preserved.
+
+Per-leg settings come from `localStorage`, which is unchanged between
+queue runs. Global settings are read from the UI at the moment each leg
+records — so flip a global, rerun, you're done.
+
+### Editing a config by hand
+
+The JSON file is human-readable. To tweak one render without touching the
+UI:
+
+1. Copy `leg_42_1920x1080.json` to `leg_42_alt.json`.
+2. Edit a value in any editor (e.g. change `"basemap"` or `"overlayScale"`).
+3. **Load config…** in the renderer, pick `leg_42_alt.json`, hit Record.
+
+This is also a clean way to share settings across machines or to commit a
+known-good render configuration into a presentation repo.
+
+
+## Converting WebM to MP4 (manual fallback)
+
+The in-browser ffmpeg.wasm conversion handles MP4 output automatically. If
+you turned off **Output MP4** to save raw WebMs, or the in-browser
+conversion failed and you want to do it yourself, use the local `ffmpeg`:
 
 ```bash
 ffmpeg -i leg_11_1920x1080.webm -c:v libx264 -pix_fmt yuv420p -crf 18 leg_11.mp4
@@ -385,8 +585,9 @@ for f in leg_*.webm; do
 done
 ```
 
-`-crf 18` is a good visually-lossless default. Use `-crf 23` for smaller
-files at slightly lower quality.
+`-crf 18` is a good visually-lossless default (same as the in-browser
+conversion uses). Use `-crf 23` for smaller files at slightly lower
+quality.
 
 
 ## File structure
@@ -457,9 +658,32 @@ resolution while previewing, then bump up for the final record.
 
 **I want to start over fresh.**
 The renderer stores its state in `localStorage` and IndexedDB (token,
-per-leg settings, basemap, track color, loaded GPX, etc.). To reset:
-DevTools → Application → Storage → Clear site data. Or use Chrome's
-"Clear browsing data" for `localhost`/the file URL you're using.
+per-leg settings, basemap, track color, loaded GPX, batch queue, etc.).
+To reset: DevTools → Application → Storage → Clear site data. Or use
+Chrome's "Clear browsing data" for `localhost`/the file URL you're using.
+
+**MP4 conversion fails / "MP4 conversion failed, saved WebM instead".**
+The first time MP4 is requested, the renderer downloads ffmpeg.wasm from
+unpkg (about 30 MB). The download can fail because: you're offline; a
+corporate proxy blocks unpkg or cdn URLs; an ad blocker eats the script;
+the browser disabled subresource scripts because the page was opened from
+`file://` in a restrictive mode. Two paths: (1) serve `render.html` via
+`python3 -m http.server` so the page has a normal http origin (most
+restrictions vanish), or (2) turn off the **Output MP4** checkbox and
+convert the saved WebMs to MP4 manually with your local ffmpeg (see
+[Converting WebM to MP4 (manual fallback)](#converting-webm-to-mp4-manual-fallback)).
+
+**Batch render skipped a leg with "track data missing".**
+For built-in FarOtherSide legs, the per-leg geojson lives in `./geojson/`
+and needs to be reachable via fetch or one-time-cached via the "Import
+geojson folder" button (same issue as a single Record). Once the leg
+data is reachable for a normal Record, batch will pick it up. For custom
+GPX, this shouldn't happen — track data is in memory.
+
+**Batch produced fewer than N MP4s.**
+Check the browser console for per-leg errors. The status line shows
+`Batch done: 11/12 OK, 1 failed (see console).` when this happens.
+Common cause: a single leg's track data was missing.
 
 
 ## How it works under the hood
@@ -485,6 +709,26 @@ DevTools → Application → Storage → Clear site data. Or use Chrome's
 - **The GeoJSON cache** uses IndexedDB with two stores: `legs` (per-leg
   geojson for the FarOtherSide voyage, keyed by numeric leg id) and `sources`
   (the active loaded-GPX bundle, keyed by `"active"`).
+- **MP4 conversion** uses `@ffmpeg/ffmpeg@0.12.10` (single-thread core
+  `@ffmpeg/core@0.12.6`) loaded lazily from unpkg on first record. The
+  single-thread build is required because the multi-thread variant uses
+  `SharedArrayBuffer`, which needs the page to be `crossOriginIsolated` —
+  which `file://` pages can't be. Single-thread H.264 encoding at CRF 18
+  runs at roughly 0.5–2× the clip duration on a modern laptop.
+- **The batch render loop** is a plain async for-of over the queued leg
+  ids, refactored out of the existing record pipeline. `selectLeg` is
+  called fresh on each leg so per-leg settings are hydrated from
+  `localStorage`; global settings (basemap, resolution, etc.) are
+  re-read from the UI at record time. A `batchCancel` flag flipped by
+  the Stop button halts the queue between legs while still letting the
+  current leg finish saving.
+- **The JSON config** is built by `buildConfigSnapshot()`, which reads
+  every setting from the current UI state at the moment of record (not
+  from the leg's saved persistence) — so the snapshot is always
+  authoritative regardless of whether the user's pending edits had been
+  committed. `applyConfigSnapshot()` reverses the operation: it writes
+  every value back into the UI, updates `localStorage`, re-applies map
+  styles, then re-selects the leg.
 
 
 ## License
