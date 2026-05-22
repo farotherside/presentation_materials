@@ -1984,6 +1984,17 @@ async function prewarmTilesForLeg(leg, gj) {
     });
   }
 
+  // Static mode never moves the camera during animation, so the recorded
+  // frame is just the current viewport with the track growing across it.
+  // Don't fitBounds here — that would clobber any manual zoom/pan the user
+  // did after `selectLeg` first framed the leg. The visible tiles are
+  // already loaded (the user has been looking at them); waitForIdle is a
+  // belt-and-suspenders check.
+  if (leg.camera === 'static') {
+    await waitForIdle();
+    return;
+  }
+
   const lons = coords.map(c => c[0]);
   const lats = coords.map(c => c[1]);
   const bounds = [[Math.min(...lons), Math.min(...lats)],
