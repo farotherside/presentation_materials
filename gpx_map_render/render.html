@@ -193,6 +193,25 @@
       <input type="range" id="line-weight" min="1" max="6" step="0.5" value="2.5" style="flex:1;">
       <span id="line-weight-val" style="color:#789bb8;font-size:11px;width:20px;">2.5</span>
     </div>
+    <div class="control-line">
+      <label>Graticule</label>
+      <label style="color:#e8eaed;font-size:11px;flex:1;">
+        <input type="checkbox" id="grat-show"> meridians &amp; parallels
+      </label>
+    </div>
+    <div class="control-line"
+         title="Spacing between gridlines in degrees. Smaller values draw more lines.">
+      <label>Spacing</label>
+      <input type="range" id="grat-spacing" min="0" max="6" step="1" value="3" style="flex:1;">
+      <span id="grat-spacing-val" style="color:#789bb8;font-size:11px;width:42px;">10°</span>
+    </div>
+    <div class="control-line"
+         title="Color and opacity of the gridlines. White at low opacity works well on dark and satellite basemaps; black on light basemaps.">
+      <label>Grid color</label>
+      <input type="color" id="grat-color" value="#ffffff" style="flex:0 0 50px;height:26px;padding:0;cursor:pointer;">
+      <input type="range" id="grat-opacity" min="0.05" max="1" step="0.05" value="0.30" style="flex:1;">
+      <span id="grat-opacity-val" style="color:#789bb8;font-size:11px;width:42px;">30%</span>
+    </div>
 
     <h3>5. Waypoints <span id="wpt-count" style="color:#789bb8;font-weight:400;font-size:11px;"></span></h3>
     <div class="control-line">
@@ -1091,6 +1110,7 @@ function initMap() {
       catch (e) { console.warn('lightPreset failed:', e); }
     }
     addTrackLayers();
+    updateGraticuleLayer();
     updateWaypointLayer();
     document.getElementById('render-status').textContent = 'Map ready.';
   });
@@ -1385,6 +1405,92 @@ function updateWaypointLayer() {
   } catch (e) {}
 }
 
+// === GRATICULE (lat/lon gridlines) ===
+// Discrete spacings the "Spacing" slider snaps to. Indexed by the slider's
+// numeric value 0..6 — finer spacing on the left, coarser on the right.
+const GRAT_SPACINGS = [1, 2, 5, 10, 15, 30, 45];
+
+function getGraticuleSettings() {
+  const idx = +document.getElementById('grat-spacing').value;
+  const safeIdx = Math.max(0, Math.min(GRAT_SPACINGS.length - 1, isNaN(idx) ? 3 : idx));
+  return {
+    show:    document.getElementById('grat-show').checked,
+    spacing: GRAT_SPACINGS[safeIdx],
+    color:   document.getElementById('grat-color').value || '#ffffff',
+    opacity: +document.getElementById('grat-opacity').value || 0.30,
+  };
+}
+
+// Build a FeatureCollection of meridian + parallel LineStrings at the chosen
+// spacing. Both meridians and parallels are anchored on 0° (the prime
+// meridian and equator) so 0° is always a gridline, in line with
+// cartographic convention. Meridians span lat -85 to +85 (Mercator's usable
+// range); parallels are split into segments at -90/0/90 lon so Mapbox never
+// has to interpolate across the antimeridian.
+function buildGraticule(spacingDeg) {
+  const features = [];
+  const lonMax = Math.floor(180 / spacingDeg) * spacingDeg;
+  for (let lon = -lonMax; lon <= lonMax; lon += spacingDeg) {
+    features.push({
+      type: 'Feature',
+      properties: { kind: 'meridian', value: lon },
+      geometry: { type: 'LineString', coordinates: [[lon, -85], [lon, 85]] },
+    });
+  }
+  const latMax = Math.floor(85 / spacingDeg) * spacingDeg;
+  for (let lat = -latMax; lat <= latMax; lat += spacingDeg) {
+    features.push({
+      type: 'Feature',
+      properties: { kind: 'parallel', value: lat },
+      geometry: { type: 'LineString',
+        coordinates: [[-180, lat], [-90, lat], [0, lat], [90, lat], [180, lat]] },
+    });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+// (Re)build the graticule source + layer. Inserted below the track layers so
+// the track / boat / waypoints always sit on top of the grid.
+function updateGraticuleLayer() {
+  if (!map || !map.isStyleLoaded()) return;
+  const s = getGraticuleSettings();
+  const data = s.show
+    ? buildGraticule(s.spacing)
+    : { type: 'FeatureCollection', features: [] };
+
+  if (!map.getSource('graticule')) {
+    map.addSource('graticule', { type: 'geojson', data });
+  } else {
+    map.getSource('graticule').setData(data);
+  }
+
+  if (!map.getLayer('graticule-line')) {
+    // Insert below the track so the track stays visually dominant
+    const beforeId = map.getLayer('track-glow') ? 'track-glow' : undefined;
+    map.addLayer({
+      id: 'graticule-line', type: 'line', source: 'graticule',
+      paint: {
+        'line-color': s.color,
+        'line-opacity': s.opacity,
+        'line-width': 0.8,
+        'line-dasharray': [2, 2],
+      },
+    }, beforeId);
+  } else {
+    map.setPaintProperty('graticule-line', 'line-color', s.color);
+    map.setPaintProperty('graticule-line', 'line-opacity', s.opacity);
+  }
+  map.setLayoutProperty('graticule-line', 'visibility', s.show ? 'visible' : 'none');
+
+  // Update the spacing readout label
+  const spEl = document.getElementById('grat-spacing-val');
+  if (spEl) spEl.textContent = `${s.spacing}°`;
+  const opEl = document.getElementById('grat-opacity-val');
+  if (opEl) opEl.textContent = `${Math.round(s.opacity * 100)}%`;
+
+  try { localStorage.setItem('grat-settings', JSON.stringify(s)); } catch (e) {}
+}
+
 // Parse a basemap value of the form "<style-url>|<lightPreset>" — the second
 // part (if present) applies to Mapbox Standard styles via setConfigProperty.
 function parseBasemapValue(v) {
@@ -1407,6 +1513,7 @@ function changeBasemap() {
     }
     addTrackLayers();
     applyTrackStyle();
+    updateGraticuleLayer();
     updateWaypointLayer();
     // If a leg is currently selected, redraw its track in the new style
     if (currentLegId && geojsonCache[currentLegId]) {
@@ -2028,6 +2135,10 @@ document.getElementById('wpt-size').addEventListener('input', (e) => {
   updateWaypointLayer();
 });
 
+// Graticule controls
+['grat-show', 'grat-spacing', 'grat-color', 'grat-opacity'].forEach(id =>
+  document.getElementById(id).addEventListener('input', updateGraticuleLayer));
+
 // Follow-zoom row visibility tied to camera dropdown
 function updateFollowZoomVisibility() {
   const cam = document.getElementById('cam-input').value;
@@ -2305,6 +2416,24 @@ try {
     if (savedWpt.size) {
       document.getElementById('wpt-size').value = savedWpt.size;
       document.getElementById('wpt-size-val').textContent = savedWpt.size;
+    }
+  }
+  // Graticule settings
+  const savedGrat = JSON.parse(localStorage.getItem('grat-settings') || 'null');
+  if (savedGrat) {
+    document.getElementById('grat-show').checked = !!savedGrat.show;
+    if (savedGrat.color) document.getElementById('grat-color').value = savedGrat.color;
+    if (typeof savedGrat.opacity === 'number') {
+      document.getElementById('grat-opacity').value = savedGrat.opacity;
+      document.getElementById('grat-opacity-val').textContent =
+        Math.round(savedGrat.opacity * 100) + '%';
+    }
+    if (typeof savedGrat.spacing === 'number') {
+      const idx = GRAT_SPACINGS.indexOf(savedGrat.spacing);
+      if (idx >= 0) {
+        document.getElementById('grat-spacing').value = idx;
+        document.getElementById('grat-spacing-val').textContent = savedGrat.spacing + '°';
+      }
     }
   }
   // Speed overlay sliders

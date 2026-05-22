@@ -158,6 +158,16 @@ miles, the year, the configured duration, and the camera mode.
   Gold (default), International Orange `#FF4F00`, Coral red, Teal, Lavender,
   Sea green, Amber, White, Black.
 - **Line weight** — 1.0 to 6.0 in 0.5 steps.
+- **Graticule** — toggle to overlay meridians (lines of constant longitude)
+  and parallels (lines of constant latitude). Drawn as thin dashed lines
+  beneath the track so the track stays visually dominant.
+- **Spacing** — slider that snaps to standard cartographic spacings: 1°, 2°,
+  5°, 10° (default), 15°, 30°, 45°. Both meridians and parallels are
+  anchored on 0° so the equator and prime meridian are always gridlines.
+- **Grid color / opacity** — color picker plus an opacity slider (5–100%).
+  White at ~30% opacity is a good default for dark and satellite basemaps;
+  black at ~30% works better on light basemaps. All graticule settings
+  persist between sessions.
 
 ### 5. Waypoints
 
