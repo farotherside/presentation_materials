@@ -1787,8 +1787,74 @@ function drawMapToComposite(ctx, mapCanvas, W, H) {
   ctx.drawImage(mapCanvas, sx, sy, sCropW, sCropH, 0, 0, W, H);
 }
 
+// === TILE PREWARM ===
+// Mapbox loads tiles lazily as the camera moves into them, which means a
+// fresh recording captures "white square" loading artifacts. We pre-walk the
+// camera through the path the animation will take so all the needed tiles
+// are fetched and cached before MediaRecorder.start() fires. Phase 1 covers
+// the wide-fit view; Phase 2 visits a handful of positions along the track
+// at whatever close-in zoom the chosen camera mode will hit.
+//
+// Once a leg has been prewarmed, the browser's tile cache makes subsequent
+// prewarm passes (re-recording the same leg, etc.) essentially instant
+// because `idle` fires immediately when no new tiles need fetching.
+async function prewarmTilesForLeg(leg, gj) {
+  if (!map) return;
+  const trimmed = trimGeojson(gj, leg.trimStart ?? 0, leg.trimEnd ?? 1);
+  const coords = trimmed.coords;
+  if (coords.length < 2) return;
+
+  // Each step waits for `idle` (all tiles loaded, no animations in flight)
+  // with a safety timeout so a slow or failing tile request can't hang the
+  // whole record button.
+  function waitForIdle(timeoutMs = 2500) {
+    return new Promise(resolve => {
+      let resolved = false;
+      const ok = () => { if (!resolved) { resolved = true; resolve(); } };
+      map.once('idle', ok);
+      setTimeout(ok, timeoutMs);
+    });
+  }
+
+  const lons = coords.map(c => c[0]);
+  const lats = coords.map(c => c[1]);
+  const bounds = [[Math.min(...lons), Math.min(...lats)],
+                  [Math.max(...lons), Math.max(...lats)]];
+
+  // Phase 1: fit the leg bbox so wide-zoom tiles get loaded
+  map.fitBounds(bounds, { padding: 80, duration: 0 });
+  await waitForIdle();
+
+  // Phase 2: camera-mode-specific close-in tile loading
+  if (leg.camera === 'follow') {
+    const followZoom = leg.followZoom ?? 5;
+    const N = 10;
+    for (let i = 0; i < N; i++) {
+      const idx = Math.floor((i / (N - 1)) * (coords.length - 1));
+      map.jumpTo({ center: coords[idx], zoom: followZoom });
+      await waitForIdle(1500);
+    }
+    // Land on coords[0] so the animation's first frame is seamless
+    map.jumpTo({ center: coords[0], zoom: followZoom });
+    await waitForIdle(1500);
+  } else if (leg.camera === 'keyframe') {
+    // Keyframe pulses by +1.5 zoom around the midpoint — pre-load those tiles
+    const baseZoom = map.getZoom();
+    const N = 6;
+    for (let i = 0; i < N; i++) {
+      const idx = Math.floor((i / (N - 1)) * (coords.length - 1));
+      map.jumpTo({ center: coords[idx], zoom: baseZoom + 1.5 });
+      await waitForIdle(1500);
+    }
+    // Restore the fitted view so the animation starts at the right camera
+    map.fitBounds(bounds, { padding: 80, duration: 0 });
+    await waitForIdle();
+  }
+  // Static: nothing else — the wide-fit view in Phase 1 covers everything.
+}
+
 // === RECORDING ===
-function startRecord() {
+async function startRecord() {
   if (!currentLegId) return;
   const leg = readLegFromUI(getLegById(currentLegId));
   const gj = geojsonCache[currentLegId];
@@ -1805,6 +1871,14 @@ function startRecord() {
     type:'Feature', geometry:{ type:'LineString', coordinates: [trimmedStart] }});
   map.getSource('boat').setData({
     type:'Feature', geometry:{ type:'Point', coordinates: trimmedStart }});
+
+  // Pre-warm map tiles before the recorder starts so the WebM doesn't
+  // capture any "white square" tile-loading artifacts. Reset the on-screen
+  // overlays first so a stale value from the previous run isn't shown
+  // during prewarm.
+  updateOverlay({ dateText: '—', distNm: 0, speedKn: 0, leg });
+  setStatus('render-status', 'Pre-loading map tiles…', '#4a9eff');
+  await prewarmTilesForLeg(leg, gj);
 
   const mapCanvas = map.getCanvas();
   const composite = document.createElement('canvas');
@@ -2142,13 +2216,20 @@ document.getElementById('preview-btn').onclick = () => {
   animateLeg(leg, geojsonCache[currentLegId]);
 };
 
-document.getElementById('record-btn').onclick = () => {
+// Re-entry guard for Record: prevents a second click during the (async)
+// prewarm phase from spawning a parallel recording. The user sees the
+// "Pre-loading map tiles…" status message so they know to wait.
+let preparingRecord = false;
+document.getElementById('record-btn').onclick = async () => {
+  if (preparingRecord) return;
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.stop();
     document.getElementById('record-btn').classList.remove('recording');
     return;
   }
-  startRecord();
+  preparingRecord = true;
+  try { await startRecord(); }
+  finally { preparingRecord = false; }
 };
 
 // Stop button — interrupts a Preview or a Record in progress. A recording

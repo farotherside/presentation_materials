@@ -217,7 +217,13 @@ Reads `<wpt>` elements from the loaded GPX.
   settings.
 - **Record** — runs the animation while capturing the composite canvas to a
   `.webm` file. Filename: `leg_NN_WxH.webm` for single legs, `legs_F-T_WxH.webm`
-  for combined ranges. Click again to abort mid-record.
+  for combined ranges. Click again to abort mid-record. Before the recorder
+  starts, the renderer pre-walks the camera through the path the animation
+  will take so all the basemap tiles get fetched and cached — this prevents
+  "white square" tile-loading artifacts from showing up in the recorded
+  video. The first record on a fresh leg takes 3–10 seconds of prewarm; once
+  the browser has cached the tiles, subsequent recordings of the same leg
+  prewarm essentially instantly.
 - **Stop** — interrupts whatever is currently playing. Stops a Preview in
   place. Stops a Record and finalises the `.webm` with whatever has been
   captured so far (the file is still saved, just shorter than a full run).
