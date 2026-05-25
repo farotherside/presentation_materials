@@ -797,11 +797,16 @@ function compose() {
 }
 
 function drawMapToComposite(ctx, src, W, H) {
-  // Simple scale-to-fill: preserves the exact zoom/pan the user sees in the
-  // preview. Both the map canvas and track canvas share the same dimensions so
-  // they stay perfectly aligned. Slight AR distortion is far preferable to
-  // cropping (which changes the apparent zoom level).
-  ctx.drawImage(src, 0, 0, W, H);
+  // Centre-crop (cover): scale the source so it fills W×H while preserving
+  // its aspect ratio, cropping equally from each side as needed.
+  // Both the map canvas and track canvas share identical dimensions so the
+  // same crop keeps them perfectly aligned.
+  const mw = src.width, mh = src.height;
+  const ar = mw / mh, ta = W / H;
+  let sw, sh, sx, sy;
+  if (ar > ta) { sh = mh; sw = mh * ta; sx = (mw - sw) / 2; sy = 0; }
+  else          { sw = mw; sh = mw / ta; sx = 0; sy = (mh - sh) / 2; }
+  ctx.drawImage(src, sx, sy, sw, sh, 0, 0, W, H);
 }
 
 // ── Play / Stop ────────────────────────────────────────────────────────────────
