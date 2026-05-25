@@ -54,7 +54,7 @@ input[type=checkbox]{accent-color:#4a9eff;width:14px;height:14px;cursor:pointer;
   text-shadow:0 1px 8px rgba(0,0,0,.95),0 0 16px rgba(0,0,0,.7);transition:opacity .2s}
 .ov.hidden{display:none}
 #ov-date{top:calc(22px*var(--os));left:calc(22px*var(--os));
-  font-size:calc(30px*var(--os));font-weight:600;font-family:Georgia,serif;line-height:1.1}
+  font-size:calc(60px*var(--os));font-weight:600;font-family:Georgia,serif;line-height:1.1}
 #ov-title{top:calc(18px*var(--os));right:calc(22px*var(--os));
   font-size:calc(10.5px*var(--os));letter-spacing:.08em;text-align:right;
   font-family:'Segoe UI',sans-serif;font-weight:700;color:rgba(255,255,255,.6);
@@ -699,7 +699,7 @@ function drawHUDToCanvas(ctx, W, H, day, activeCount) {
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.95)'; ctx.shadowBlur = 10;
   if ($id('ov-date-tog').checked) {
-    ctx.font = `600 ${Math.round(30*scale)}px Georgia, serif`;
+    ctx.font = `600 ${Math.round(60*scale)}px Georgia, serif`;
     ctx.fillStyle = 'rgba(255,255,255,0.92)';
     ctx.textBaseline = 'top'; ctx.textAlign = 'left';
     ctx.fillText(fmtDate(day), pad, pad);
