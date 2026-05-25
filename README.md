@@ -22,3 +22,17 @@ Includes:
 
 See [`gpx_map_render/README.md`](./gpx_map_render/README.md) for full user
 documentation — features, sidebar reference, troubleshooting, etc.
+
+### [`northern australia cyclones animation/`](./northern%20australia%20cyclones%20animation/)
+
+An interactive browser tool that animates tropical cyclone tracks approaching
+the north Australian coast (Exmouth to Thursday Island) from 1980 to 2026.
+Renders on a live Mapbox satellite basemap; exports WebM video for Keynote.
+Storm data (247 tracks, IBTrACS v04r01) is embedded in the HTML — open
+`cyclone_render.html` in Chrome with a Mapbox token and it runs standalone.
+
+Also includes a Python script (`generate_cyclone_video.py`) for high-quality
+MP4 rendering via cartopy + ffmpeg.
+
+See [`northern australia cyclones animation/README.md`](./northern%20australia%20cyclones%20animation/README.md)
+for full documentation.
