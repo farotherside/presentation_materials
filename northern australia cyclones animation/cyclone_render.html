@@ -348,6 +348,7 @@ let compositing = false, playing = false;
 let currentDay = 0, lastFrameTime = 0, lastActiveCount = 0;
 let STORMS = [], STORMS_VIS = [];
 let composite = null, compCtx = null;
+let recordSavedGrid = null, recordSavedCamera = null;
 let trackCanvas = null, trackCtx = null;
 
 // ── Pre-process ────────────────────────────────────────────────────────────────
@@ -820,9 +821,25 @@ async function startRecord() {
   composite=document.createElement('canvas');
   composite.width=W; composite.height=H;
   compCtx=composite.getContext('2d');
+
+  // Temporarily resize the map container to the output aspect ratio so the
+  // recorded view is pixel-accurate to what the user sees at their zoom level.
+  // Without this, drawMapToComposite() centre-crops the map canvas whenever the
+  // container AR ≠ output AR, producing a mismatched zoom in the output video.
+  recordSavedGrid   = $id('app').style.gridTemplateColumns;
+  recordSavedCamera = { center: map.getCenter(), zoom: map.getZoom() };
+
+  const mapH = $id('map-wrap').clientHeight;
+  const mapW  = Math.round(mapH * (W / H));
+  $id('app').style.gridTemplateColumns = `320px ${mapW}px`;
+  map.resize();
+  map.setCenter(recordSavedCamera.center);
+  map.setZoom(recordSavedCamera.zoom);
+
   setStatus('Prewarming tiles…');
   $id('record-btn').disabled=true; $id('preview-btn').disabled=true;
   await prewarmTiles();
+  sizeTrackCanvas();
   currentDay=getMinDay(); drawFrame(currentDay);
   const types=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
   const mime=types.find(t=>MediaRecorder.isTypeSupported(t))||'video/webm';
@@ -845,6 +862,14 @@ function stopRecord() {
   if(mediaRecorder&&mediaRecorder.state!=='inactive') mediaRecorder.stop();
   compositing=false; playing=false;
   cancelAnimationFrame(animFrameId); cancelAnimationFrame(compFrameId);
+  // Restore map container to original grid layout
+  if (recordSavedGrid !== null) {
+    $id('app').style.gridTemplateColumns = recordSavedGrid;
+    map.resize();
+    if (recordSavedCamera) { map.setCenter(recordSavedCamera.center); map.setZoom(recordSavedCamera.zoom); }
+    sizeTrackCanvas();
+    recordSavedGrid = null; recordSavedCamera = null;
+  }
   $id('record-btn').classList.remove('recording');
   $id('record-btn').textContent='⏺ Record WebM';
   enableUI(true);
