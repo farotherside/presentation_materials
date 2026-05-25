@@ -494,8 +494,9 @@ function setupLayers() {
 function sizeTrackCanvas() {
   if (!trackCanvas) return;
   const wrap = $id('map-wrap');
-  trackCanvas.width  = wrap.clientWidth;
-  trackCanvas.height = wrap.clientHeight;
+  const dpr = window.devicePixelRatio || 1;
+  trackCanvas.width  = Math.round(wrap.clientWidth  * dpr);
+  trackCanvas.height = Math.round(wrap.clientHeight * dpr);
 }
 
 function buildGraticule(spacing) {
@@ -512,6 +513,7 @@ function buildGraticule(spacing) {
 function drawFrame(day) {
   if (!map || !trackCtx) return;
 
+  const dpr = window.devicePixelRatio || 1;
   const W = trackCanvas.width, H = trackCanvas.height;
   trackCtx.clearRect(0, 0, W, H);
 
@@ -554,7 +556,7 @@ function drawFrame(day) {
     for (const pt of storm.pts) {
       if (pt[0] > clipDay) break;
       const px = map.project([pt[1], pt[2]]);
-      pts.push({ x: px.x, y: px.y, cat: pt[3] });
+      pts.push({ x: px.x * dpr, y: px.y * dpr, cat: pt[3] });
     }
     if (pts.length < 2) continue;
 
@@ -570,7 +572,7 @@ function drawFrame(day) {
       for (const p of pts) { if (p.cat < 0) p.cat = 0; } // last-resort floor
     }
 
-    const lw        = weight;
+    const lw        = weight * dpr;
     const headCat   = pts[pts.length - 1].cat;
     const headColor = CAT_COLOR[headCat] ?? CAT_COLOR['-1'];
 
@@ -661,7 +663,7 @@ function drawFrame(day) {
       trackCtx.globalAlpha = 0.20;
       trackCtx.fillStyle   = headColor;
       trackCtx.beginPath();
-      trackCtx.arc(hx, hy, 14, 0, Math.PI * 2);
+      trackCtx.arc(hx, hy, 14 * dpr, 0, Math.PI * 2);
       trackCtx.fill();
       trackCtx.restore();
 
@@ -669,9 +671,9 @@ function drawFrame(day) {
       trackCtx.save();
       trackCtx.fillStyle   = headColor;
       trackCtx.strokeStyle = 'rgba(255,255,255,0.85)';
-      trackCtx.lineWidth   = 1.5;
+      trackCtx.lineWidth   = 1.5 * dpr;
       trackCtx.beginPath();
-      trackCtx.arc(hx, hy, 5, 0, Math.PI * 2);
+      trackCtx.arc(hx, hy, 5 * dpr, 0, Math.PI * 2);
       trackCtx.fill();
       trackCtx.stroke();
       trackCtx.restore();
