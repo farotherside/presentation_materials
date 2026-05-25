@@ -751,8 +751,14 @@ function step(now) {
   currentDay += getSpeed() * Math.min(elapsed / 16.667, 3);
   const maxDay = getMaxDay();
   if (currentDay >= maxDay) {
-    currentDay = maxDay; drawFrame(currentDay); stopAnim();
-    if (!compositing) setStatus('Animation complete. Press ▶ Preview to replay.');
+    currentDay = maxDay; drawFrame(currentDay);
+    if (compositing) {
+      stopRecord();   // finalises and downloads the WebM
+      setStatus('Recording complete — file saved.');
+    } else {
+      stopAnim();
+      setStatus('Animation complete. Press ▶ Preview to replay.');
+    }
     return;
   }
   drawFrame(currentDay);
