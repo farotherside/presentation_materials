@@ -63,7 +63,9 @@ input[type=checkbox]{accent-color:#4a9eff;width:14px;height:14px;cursor:pointer;
   font-size:calc(16px*var(--os));font-family:'Segoe UI',sans-serif;color:rgba(255,220,80,.95);letter-spacing:.02em}
 #ov-legend{bottom:calc(28px*var(--os));right:calc(22px*var(--os));
   font-size:calc(10px*var(--os));font-family:'Segoe UI',sans-serif;
-  line-height:calc(20px*var(--os));color:rgba(190,215,240,.85)}
+  line-height:calc(20px*var(--os));color:rgba(190,215,240,.85);
+  background:rgba(80,80,80,0.80);border-radius:6px;
+  padding:calc(8px*var(--os)) calc(12px*var(--os))}
 .ls{display:inline-block;width:calc(18px*var(--os));height:calc(2.5px*var(--os));
   border-radius:2px;margin-right:5px;vertical-align:middle}
 #status{font-size:11px;color:#6a8aaa;min-height:16px;line-height:1.4}
@@ -730,8 +732,26 @@ function drawHUDToCanvas(ctx, W, H, day, activeCount) {
     ];
     const lineH  = Math.round(40*scale), fs = Math.round(20*scale);
     const swW    = Math.round(36*scale);
-    const startY = H - pad - items.length * lineH;
+    const boxPadX = Math.round(12*scale), boxPadY = Math.round(8*scale);
+
+    // Measure the widest label so the box fits snugly
     ctx.font = `${fs}px 'Segoe UI', Arial, sans-serif`;
+    const maxLabelW = Math.max(...items.map(([,l]) => ctx.measureText(l).width));
+    const boxW = boxPadX + Math.round(6*scale) + swW + maxLabelW + boxPadX;
+    const boxH = items.length * lineH + boxPadY * 2;
+    const startY = H - pad - items.length * lineH;
+    const boxX = W - pad - boxW;
+    const boxY = startY - boxPadY;
+
+    // 80% opaque gray background
+    ctx.save();
+    ctx.fillStyle = 'rgba(80,80,80,0.80)';
+    ctx.beginPath();
+    const r = Math.round(6*scale);
+    ctx.roundRect(boxX, boxY, boxW, boxH, r);
+    ctx.fill();
+    ctx.restore();
+
     ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
     items.forEach(([color, label], i) => {
       const y = startY + i * lineH + lineH / 2;
