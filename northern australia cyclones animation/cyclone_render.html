@@ -56,7 +56,7 @@ input[type=checkbox]{accent-color:#4a9eff;width:14px;height:14px;cursor:pointer;
 #ov-date{top:calc(22px*var(--os));left:calc(22px*var(--os));
   font-size:calc(60px*var(--os));font-weight:600;font-family:Georgia,serif;line-height:1.1}
 #ov-title{top:calc(18px*var(--os));right:calc(22px*var(--os));
-  font-size:calc(10.5px*var(--os));letter-spacing:.08em;text-align:right;
+  font-size:calc(21px*var(--os));letter-spacing:.08em;text-align:right;
   font-family:'Segoe UI',sans-serif;font-weight:700;color:rgba(255,255,255,.6);
   text-transform:uppercase;line-height:1.5}
 #ov-active{bottom:calc(34px*var(--os));left:calc(22px*var(--os));
@@ -709,7 +709,7 @@ function drawHUDToCanvas(ctx, W, H, day, activeCount) {
     ctx.fillText(fmtDate(day), pad, pad);
   }
   if ($id('ov-title-tog').checked) {
-    const fs = Math.round(10.5 * scale);
+    const fs = Math.round(21 * scale);
     ctx.font = `700 ${fs}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillStyle = 'rgba(255,255,255,0.62)';
     ctx.textBaseline = 'top'; ctx.textAlign = 'right';
