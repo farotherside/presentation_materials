@@ -116,12 +116,12 @@ input[type=checkbox]{accent-color:#4a9eff;width:14px;height:14px;cursor:pointer;
     <div class="sec-title">3 · Track appearance</div>
     <label class="row">
       <span class="lbl">Line weight</span>
-      <input type="range" id="line-weight" min="1" max="6" step="0.5" value="2.5">
-      <span class="val" id="line-weight-val">2.5</span>
+      <input type="range" id="line-weight" min="1" max="6" step="0.5" value="3.5">
+      <span class="val" id="line-weight-val">3.5</span>
     </label>
     <label class="row">
       <span class="lbl">Glow effect</span>
-      <input type="checkbox" id="glow-show" checked>
+      <input type="checkbox" id="glow-show">
     </label>
     <label class="row">
       <span class="lbl">Active track alpha</span>
@@ -130,13 +130,13 @@ input[type=checkbox]{accent-color:#4a9eff;width:14px;height:14px;cursor:pointer;
     </label>
     <label class="row">
       <span class="lbl">Dwell at full brightness</span>
-      <input type="range" id="dwell-days" min="0" max="60" step="5" value="10">
-      <span class="val" id="dwell-days-val">10 d</span>
+      <input type="range" id="dwell-days" min="0" max="60" step="5" value="30">
+      <span class="val" id="dwell-days-val">30 d</span>
     </label>
     <label class="row">
       <span class="lbl">Track draw rate</span>
-      <input type="range" id="draw-rate" min="0.05" max="1.0" step="0.05" value="0.25">
-      <span class="val" id="draw-rate-val">0.25×</span>
+      <input type="range" id="draw-rate" min="0.05" max="1.0" step="0.05" value="0.05">
+      <span class="val" id="draw-rate-val">0.05×</span>
     </label>
     <div class="hint">Draw rate slows how fast each track extends. Dwell holds it at full brightness after drawing completes before fading begins.</div>
   </div>
@@ -216,8 +216,8 @@ input[type=checkbox]{accent-color:#4a9eff;width:14px;height:14px;cursor:pointer;
     </label>
     <label class="row">
       <span class="lbl">Fade duration</span>
-      <input type="range" id="fade-days" min="5" max="180" step="5" value="20">
-      <span class="val" id="fade-days-val">20 d</span>
+      <input type="range" id="fade-days" min="5" max="180" step="5" value="180">
+      <span class="val" id="fade-days-val">180 d</span>
     </label>
     <label class="row">
       <span class="lbl">Min intensity</span>
@@ -244,14 +244,14 @@ input[type=checkbox]{accent-color:#4a9eff;width:14px;height:14px;cursor:pointer;
   <div class="sec">
     <div class="sec-title">6 · Overlays</div>
     <label class="row"><span class="lbl">Date</span><input type="checkbox" id="ov-date-tog" checked></label>
-    <label class="row"><span class="lbl">Year only (no month)</span><input type="checkbox" id="year-only-tog"></label>
+    <label class="row"><span class="lbl">Year only (no month)</span><input type="checkbox" id="year-only-tog" checked></label>
     <label class="row"><span class="lbl">Title</span><input type="checkbox" id="ov-title-tog" checked></label>
-    <label class="row"><span class="lbl">Active storm count</span><input type="checkbox" id="ov-active-tog" checked></label>
+    <label class="row"><span class="lbl">Active storm count</span><input type="checkbox" id="ov-active-tog"></label>
     <label class="row"><span class="lbl">Legend</span><input type="checkbox" id="ov-legend-tog" checked></label>
     <label class="row">
       <span class="lbl">Overlay size</span>
-      <input type="range" id="overlay-scale" min="0.5" max="2.0" step="0.05" value="1.0">
-      <span class="val" id="overlay-scale-val">1.0×</span>
+      <input type="range" id="overlay-scale" min="0.5" max="2.0" step="0.05" value="1.60">
+      <span class="val" id="overlay-scale-val">1.60×</span>
     </label>
   </div>
 
