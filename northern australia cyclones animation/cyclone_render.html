@@ -545,8 +545,7 @@ function drawFrame(day) {
       trackAlpha = alpha;
     } else {
       const fadeFrac  = (day - dwellEnd) / getFade();
-      const fadeAlpha = Math.max(0, 1 - fadeFrac);
-      trackAlpha = alpha * fadeAlpha * 0.6;
+      trackAlpha = alpha * Math.max(0, 1 - fadeFrac);
     }
     if (trackAlpha <= 0) continue;
 
